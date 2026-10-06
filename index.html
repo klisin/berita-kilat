@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Berita Kilat — Link ke Posting</title>
+<meta name="description" content="Ubah link berita menjadi gambar judul dan caption jurnalistik 5W+1H.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=Merriweather:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="dot"></span>
+    <div>
+      <h1>Berita Kilat</h1>
+      <p>Tempel link berita → gambar judul + caption 5W+1H</p>
+    </div>
+  </div>
+  <div class="top-act">
+    <select id="presetQuick" class="preset-quick" title="Ganti akun media" hidden></select>
+    <button class="ghost" id="btnSettings" type="button">⚙ Pengaturan</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- INPUT -->
+  <section class="card">
+    <label for="url" class="lbl">Link berita</label>
+    <div class="row">
+      <input id="url" type="url" placeholder="https://www.kompas.com/..." autocomplete="off">
+      <button id="btnGo" class="primary" type="button">Proses</button>
+    </div>
+    <p class="hint">App mengambil judul, foto, dan isi artikel, lalu membuat gambar dan caption. Jika situs memblokir, isi manual di bawah.</p>
+    <div id="status" class="status" hidden></div>
+  </section>
+
+  <div class="grid">
+    <!-- LEFT: IMAGE -->
+    <section class="card">
+      <div class="card-h">
+        <h2>Gambar</h2>
+        <div class="seg" id="fmtSeg">
+          <button data-fmt="4:5" class="on" type="button">4:5</button>
+          <button data-fmt="1:1" type="button">1:1</button>
+          <button data-fmt="9:16" type="button">9:16</button>
+        </div>
+      </div>
+      <div class="canvas-box"><canvas id="cv" width="1080" height="1350"></canvas></div>
+
+      <div class="fields">
+        <label class="lbl" for="headline">Judul di gambar</label>
+        <textarea id="headline" rows="3" placeholder="Judul akan terisi otomatis"></textarea>
+        <div class="two">
+          <div>
+            <label class="lbl" for="kicker">Label kecil (kicker)</label>
+            <input id="kicker" type="text" placeholder="NASIONAL">
+          </div>
+          <div>
+            <label class="lbl" for="style">Gaya</label>
+            <select id="style">
+              <option value="gradient">Gradasi di atas foto</option>
+              <option value="panel">Panel warna di bawah</option>
+              <option value="frame">Bingkai + panel</option>
+            </select>
+          </div>
+        </div>
+        <label class="lbl" for="credit">Keterangan sumber</label>
+        <input id="credit" type="text" placeholder="Sumber: kompas.com">
+        <p class="hint" id="photoInfo">Foto diambil otomatis dari link berita.</p>
+        <div id="photoUpload" class="photo-upload" hidden>
+          <label class="lbl" for="photoFile">Unggah foto manual</label>
+          <input id="photoFile" type="file" accept="image/*">
+        </div>
+        <div class="two">
+          <div>
+            <label class="lbl" for="fontScale">Ukuran judul</label>
+            <input id="fontScale" type="range" min="0.7" max="1.3" step="0.05" value="1">
+          </div>
+          <div>
+            <label class="lbl" for="focusY">Posisi foto (atas–bawah)</label>
+            <input id="focusY" type="range" min="0" max="1" step="0.05" value="0.35">
+          </div>
+        </div>
+        <button id="btnDownload" class="primary block" type="button">⬇ Unduh PNG</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: CAPTION -->
+    <section class="card">
+      <div class="card-h">
+        <h2>Caption 5W+1H</h2>
+        <select id="engine" title="Mesin caption">
+          <option value="gemini">Gemini</option>
+          <option value="claude">Claude</option>
+          <option value="template">Template (tanpa AI)</option>
+        </select>
+      </div>
+      <div class="two">
+        <div>
+          <label class="lbl" for="length">Panjang</label>
+          <select id="length">
+            <option value="pendek">Pendek (±80 kata)</option>
+            <option value="sedang" selected>Sedang (±150 kata)</option>
+            <option value="panjang">Panjang (±250 kata)</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl" for="platform">Platform</label>
+          <select id="platform">
+            <option value="Instagram">Instagram</option>
+            <option value="Facebook">Facebook</option>
+            <option value="X/Twitter">X / Twitter</option>
+            <option value="LinkedIn">LinkedIn</option>
+          </select>
+        </div>
+      </div>
+      <button id="btnCaption" class="secondary block" type="button">✦ Buat ulang caption</button>
+
+      <div class="w5h1" id="w5h1"></div>
+
+      <label class="lbl" for="caption">Caption</label>
+      <textarea id="caption" rows="14" placeholder="Caption akan muncul di sini"></textarea>
+      <div class="row gap">
+        <button id="btnCopy" class="primary" type="button">Salin caption</button>
+        <span class="muted" id="wordCount"></span>
+      </div>
+
+      <details class="raw">
+        <summary>Bahan artikel (bisa diedit / ditempel manual)</summary>
+        <label class="lbl" for="artTitle">Judul asli</label>
+        <input id="artTitle" type="text">
+        <div class="two">
+          <div><label class="lbl" for="artSite">Media</label><input id="artSite" type="text"></div>
+          <div><label class="lbl" for="artDate">Tanggal terbit</label><input id="artDate" type="text"></div>
+        </div>
+        <label class="lbl" for="artImage">URL foto</label>
+        <input id="artImage" type="url">
+        <label class="lbl" for="artBody">Isi artikel</label>
+        <textarea id="artBody" rows="8" placeholder="Tempel isi berita di sini bila pengambilan otomatis gagal"></textarea>
+        <button id="btnApplyManual" class="secondary block" type="button">Pakai bahan ini</button>
+      </details>
+    </section>
+  </div>
+</main>
+
+<!-- SETTINGS -->
+<dialog id="dlg">
+  <form method="dialog" class="dlg">
+    <h2>Pengaturan</h2>
+    <p class="hint">Tersimpan hanya di browser ini. API key tidak pernah masuk ke repo GitHub.</p>
+
+    <h3>Preset akun media</h3>
+    <p class="hint">Simpan identitas media (nama, handle, logo, warna, efek logo, gaya gambar) sebagai preset, mis. "Kalawaca.com" dan "Akun pribadi". Berpindah akun cukup pilih presetnya. API key tidak ikut disimpan di preset.</p>
+    <div class="row gap">
+      <select id="presetSel"></select>
+      <button type="button" class="ghost small" id="btnPresetDel">Hapus</button>
+    </div>
+    <div class="btn-wrap">
+      <button type="button" class="primary small" id="btnPresetNew">+ Simpan sebagai preset baru</button>
+      <button type="button" class="secondary small" id="btnPresetSave">Perbarui preset terpilih</button>
+      <button type="button" class="ghost small" id="btnPresetExport">⬇ Ekspor</button>
+      <label class="ghost small btn-like" for="presetImport">⬆ Impor</label>
+      <input type="file" id="presetImport" accept=".json,application/json" hidden>
+    </div>
+    <p class="hint" id="presetMsg"></p>
+
+    <h3>Identitas media</h3>
+    <p class="hint">Atur cara media Anda tampil di pojok kiri atas gambar: pakai teks nama media, unggah logo, atau gabungkan keduanya.</p>
+
+    <label class="lbl">Tampilan media di gambar</label>
+    <div class="seg seg-full" id="brandSeg">
+      <button type="button" data-mode="text">Aa Teks nama</button>
+      <button type="button" data-mode="logo">▣ Logo</button>
+      <button type="button" data-mode="both">▣ Aa Logo + nama</button>
+    </div>
+    <input id="sBrandMode" type="hidden" value="text">
+
+    <div class="two">
+      <div><label class="lbl" for="sName">Nama media</label><input id="sName" type="text" placeholder="KALAWACA"></div>
+      <div><label class="lbl" for="sHandle">Handle / situs</label><input id="sHandle" type="text" placeholder="@kalawaca"></div>
+    </div>
+    <p class="hint">Nama media juga dipakai sebagai dateline caption.</p>
+
+    <div id="logoBox" class="logo-box">
+      <div class="logo-prev" id="logoPrev"><span class="muted">Belum ada logo</span></div>
+      <div class="logo-ctl">
+        <label class="lbl" for="sLogo">Unggah logo (PNG transparan disarankan)</label>
+        <input id="sLogo" type="file" accept="image/*">
+        <label class="lbl" for="sLogoScale">Ukuran logo</label>
+        <input id="sLogoScale" type="range" min="0.6" max="2" step="0.1" value="1">
+        <label class="lbl" for="sLogoFx">Efek logo (agar menonjol di atas foto)</label>
+        <select id="sLogoFx">
+          <option value="none" selected>Tanpa efek</option>
+          <option value="shadow">Bayangan gelap</option>
+          <option value="glow">Cahaya putih (glow)</option>
+          <option value="outline">Garis tepi putih</option>
+          <option value="plate">Plat putih di belakang logo</option>
+          <option value="plateDark">Plat gelap di belakang logo</option>
+          <option value="white">Jadikan putih (mono)</option>
+        </select>
+        <label class="lbl" for="sLogoFxAmt">Kekuatan efek</label>
+        <input id="sLogoFxAmt" type="range" min="0.1" max="1" step="0.05" value="0.6">
+        <div class="two">
+          <div><label class="lbl" for="sLogoContrast">Kontras</label><input id="sLogoContrast" type="range" min="0.5" max="2" step="0.05" value="1"></div>
+          <div><label class="lbl" for="sLogoBright">Kecerahan</label><input id="sLogoBright" type="range" min="0.5" max="1.6" step="0.05" value="1"></div>
+        </div>
+        <div class="row gap">
+          <button type="button" class="ghost small" id="btnResetFx">Reset efek</button>
+          <button type="button" class="ghost small" id="btnClearLogo">Hapus logo</button>
+        </div>
+      </div>
+    </div>
+
+    <label class="lbl">Pratinjau</label>
+    <canvas id="brandPreview" class="brand-preview" width="540" height="110"></canvas>
+
+    <div class="two">
+      <div><label class="lbl" for="sAccent">Warna aksen</label><input id="sAccent" type="color" value="#e11d48"></div>
+      <div><label class="lbl" for="sPanel">Warna panel</label><input id="sPanel" type="color" value="#0f172a"></div>
+    </div>
+    <label class="lbl" for="sFont">Huruf judul</label>
+    <select id="sFont">
+      <option value="Inter">Inter (sans, tegas)</option>
+      <option value="Merriweather">Merriweather (serif, koran)</option>
+    </select>
+    <label class="lbl" for="sDateline">Dateline caption (opsional)</label>
+    <input id="sDateline" type="text" placeholder="mis. KALAWACA — kosongkan untuk memakai nama media">
+
+    <h3>Gemini</h3>
+    <div class="two">
+      <div><label class="lbl" for="gKey">API key</label><input id="gKey" type="password" placeholder="AIza..."></div>
+      <div><label class="lbl" for="gModel">Model</label><input id="gModel" type="text" value="gemini-2.5-flash"></div>
+    </div>
+    <p class="hint">Gratis di <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
+
+    <h3>Claude</h3>
+    <div class="two">
+      <div><label class="lbl" for="cKey">API key</label><input id="cKey" type="password" placeholder="sk-ant-..."></div>
+      <div><label class="lbl" for="cModel">Model</label><input id="cModel" type="text" value="claude-sonnet-4-5"></div>
+    </div>
+    <p class="hint">Buat di <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. Nama model bisa diganti sesuai yang tersedia.</p>
+
+    <h3>Lanjutan</h3>
+    <label class="lbl" for="sProxy">Proxy CORS tambahan (opsional, akhiri dengan ?url= atau sejenisnya)</label>
+    <input id="sProxy" type="text" placeholder="https://proxy-anda.workers.dev/?url=">
+
+    <div class="row gap end">
+      <button value="close" class="primary">Simpan & tutup</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
