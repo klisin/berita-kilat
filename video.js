@@ -19,7 +19,7 @@
   const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
   const ease = (t) => 1 - Math.pow(1 - clamp(t), 3);
   const dur = () => parseInt($('vDur').value, 10) || 15;
-  const slug = () => ($('headline').value || 'video-berita').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50).replace(/^-|-$/g, '') || 'video-berita';
+  const slug = () => BK.slug('video-berita');
 
   // ---------- Naskah ----------
   const MAX_PTS = 6;

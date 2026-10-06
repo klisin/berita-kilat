@@ -36,7 +36,7 @@
     const cut = s.slice(0, max - 1); const i = cut.lastIndexOf(' ');
     return (i > max * 0.6 ? cut.slice(0, i) : cut).replace(/[\s,.;:—-]+$/, '') + '…';
   }
-  const slug = () => ($('headline').value || 'posting').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50).replace(/^-|-$/g, '') || 'posting';
+  const slug = () => BK.slug('posting');
   const title = () => $('headline').value.trim() || (BK.state.article && BK.state.article.title) || 'Berita';
   // Link bawaan: pos WordPress (artikel, atau yang sudah terbit) → URL berita sumber
   function defaultLink(kind) {

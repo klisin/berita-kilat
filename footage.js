@@ -202,9 +202,10 @@
   // ---------- UI: Footage per adegan ----------
   function rowHtml(key, shown) {
     const it = st.scenes[key] || MAIN;
-    const thumb = it.main ? (BK.state.photo && BK.state.photo.src) : (it.file ? (it.el && (it.el.currentSrc || it.el.src)) : it.thumb);
+    // Foto utama & unggahan memakai thumbnail canvas (URL blob aslinya sudah dilepas)
+    const thumb = it.main ? BK.thumb(BK.state.photo) : (it.file ? BK.thumb(it.el) : it.thumb);
     const media = thumb
-      ? (it.type === 'video' && it.file ? `<video src="${esc(thumb)}" muted></video>` : `<img src="${esc(thumb)}" alt="" loading="lazy">`)
+      ? `<img src="${esc(thumb)}" alt="" loading="lazy">`
       : '<span class="muted">—</span>';
     const label = it.main ? 'Foto utama berita' : `${esc(it.source)} · ${esc(it.credit || '')}`;
     let html = `<div class="ft-row${shown ? '' : ' dim'}" data-key="${key}">
@@ -224,7 +225,7 @@
       html += `<div class="ft-gal" data-key="${key}">
         <div class="row"><input type="text" data-ft="q" value="${esc(q)}" placeholder="Kata kunci, mis. stasiun kereta cepat"><button type="button" class="secondary small" data-ft="search">Cari</button></div>
         <p class="hint">${st.searching === key ? '<span class="spin"></span>Mencari…' : `${all.length} hasil · Artikel, Wikimedia Commons, Openverse${pexelsKey() ? ', Pexels' : ' (isi API key Pexels di Pengaturan untuk foto stok & klip video)'}`}</p>
-        <div class="ft-grid">${all.map((x, i) => `<button type="button" class="ft-cell" data-ft="pick" data-i="${i}" title="${esc(x.credit)}"><img src="${esc(x.thumb)}" alt="" loading="lazy" onerror="this.parentNode.style.display='none'">${x.type === 'video' ? '<span class="ft-play">▶</span>' : ''}<span class="ft-src">${esc(x.source)}</span></button>`).join('')}</div>
+        <div class="ft-grid">${all.map((x, i) => `<button type="button" class="ft-cell" data-ft="pick" data-i="${i}" title="${esc(x.credit)}"><img src="${esc(x.thumb)}" alt="" loading="lazy">${x.type === 'video' ? '<span class="ft-play">▶</span>' : ''}<span class="ft-src">${esc(x.source)}</span></button>`).join('')}</div>
       </div>`;
       st.galItems = all;
     }
@@ -288,6 +289,12 @@
     if (e.key === 'Enter' && e.target.matches('#footBox [data-ft="q"]')) { e.preventDefault(); doSearch(e.target.closest('[data-key]').dataset.key); }
   });
 
+  // Thumbnail galeri yang gagal dimuat disembunyikan (tanpa handler inline, agar sesuai CSP)
+  document.addEventListener('error', (e) => {
+    const im = e.target;
+    if (im && im.tagName === 'IMG' && im.closest && im.closest('.ft-cell')) im.closest('.ft-cell').style.display = 'none';
+  }, true);
+
   // Pengaturan: API key Pexels
   function renderKeyBox() {
     const box = $('footKeyBox'); if (!box) return;
@@ -309,7 +316,7 @@
       box.innerHTML = `<div class="ft-gal">
         <div class="row"><input type="text" data-pk="q" value="${esc(pk.q)}" placeholder="Kata kunci foto, mis. stasiun kereta cepat"><button type="button" class="secondary small" data-pk="search">Cari</button></div>
         <p class="hint">${pk.busy ? '<span class="spin"></span>Mencari foto…' : esc(pk.msg)}</p>
-        <div class="ft-grid">${pk.items.map((x, i) => `<button type="button" class="ft-cell" data-pk="pick" data-i="${i}" title="${esc(x.credit)}"><img src="${esc(x.thumb)}" alt="" loading="lazy" onerror="this.parentNode.style.display='none'"><span class="ft-src">${esc(x.source)}</span></button>`).join('')}</div>
+        <div class="ft-grid">${pk.items.map((x, i) => `<button type="button" class="ft-cell" data-pk="pick" data-i="${i}" title="${esc(x.credit)}"><img src="${esc(x.thumb)}" alt="" loading="lazy"><span class="ft-src">${esc(x.source)}</span></button>`).join('')}</div>
       </div>`;
     };
     const search = async () => {

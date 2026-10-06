@@ -17,6 +17,10 @@
     if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
     try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/+$/, ''); } catch { return ''; }
   }
+  // Application Password tidak boleh dikirim lewat http polos (kecuali server lokal untuk pengujian)
+  const insecure = (u) => /^http:\/\//i.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(u);
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
+  const safeHref = (u) => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
   const activeUrl = () => normUrl($('wpSite').value);
   const conn = () => sites()[activeUrl()] || null;
   function saveSite(url, data) { const s = sites(); s[url] = { ...(s[url] || {}), ...data }; BK.store.set('wpSites', s); }
@@ -26,6 +30,7 @@
   async function wpFetch(path, opts = {}, url = activeUrl(), c = conn()) {
     if (!url) throw Object.assign(new Error('nosite'), { code: 'nosite' });
     if (!c) throw Object.assign(new Error('noauth'), { code: 'noauth' });
+    if (insecure(url)) throw Object.assign(new Error('insecure'), { code: 'insecure' });
     // Mode "x": hosting membuang header Authorization → kirim lewat X-BK-Auth (dibaca plugin v1.1)
     const cred = 'Basic ' + b64(c.user + ':' + c.pass);
     const headers = { ...(c.mode === 'x' ? { 'X-BK-Auth': cred } : { Authorization: cred }), ...(opts.headers || {}) };
@@ -41,6 +46,7 @@
     if (!e) return 'Gagal';
     if (e.code === 'nosite') return 'Alamat website belum diisi. Buka Pengaturan → Website WordPress.';
     if (e.code === 'noauth') return 'Belum terhubung ke WordPress. Buka Pengaturan → Website WordPress lalu klik "Hubungkan".';
+    if (e.code === 'insecure') return 'Gunakan alamat https (mis. https://kalawaca.com) agar Application Password tidak bisa disadap di jaringan.';
     if (e.code === 'network') return 'Tidak bisa terhubung ke website. Cek alamat & internet, atau plugin keamanan yang memblokir REST API.';
     if (e.code === 'stripped') return 'Hosting/CDN website Anda menghapus header login (umum di LiteSpeed/Hostinger), sehingga WordPress tidak membaca Application Password. Pasang atau perbarui plugin Berita Kilat Connector ke versi 1.1 (Pengaturan → Website WordPress → Unduh plugin), lalu klik Tes koneksi.';
     if (e.code === 'mediablocked') return 'Unggah gambar diblokir server (biasanya firewall hosting/CDN atau batas ukuran unggahan). Anda bisa mengirim tanpa gambar unggulan lalu memasangnya manual di WordPress.';
@@ -55,7 +61,9 @@
   function connect() {
     const url = normUrl($('wpUrl').value);
     if (!url) { setMsg('wpMsg', 'Isi alamat website dulu, mis. kalawaca.com', false); return; }
-    BK.store.set('wpPending', url);
+    if (insecure(url)) { setMsg('wpMsg', friendly({ code: 'insecure' }), false); return; }
+    // Dicatat agar hanya balasan dari permintaan ini yang diterima (lihat handleReturn)
+    BK.store.set('wpPending', { url, t: Date.now() });
     if (location.protocol !== 'https:') {
       // Alur otomatis butuh alamat https (mis. GitHub Pages). Saat dibuka lokal, pakai cara manual.
       $('wpManual').open = true;
@@ -70,8 +78,16 @@
   (function handleReturn() {
     const p = new URLSearchParams(location.search);
     if (p.get('user_login') && p.get('password')) {
-      const url = normUrl(p.get('site_url') || BK.store.get('wpPending', ''));
-      if (url) { saveSite(url, { user: p.get('user_login'), pass: p.get('password'), mode: '', verified: false }); setActive(url); returnNote = 'ok'; }
+      // Hanya terima balasan untuk permintaan "Hubungkan" yang dibuat di browser ini dalam 15 menit
+      // terakhir dan dari situs yang sama. Mencegah tautan jahat mengganti website tujuan posting.
+      const pend = BK.store.get('wpPending', null);
+      const fresh = pend && typeof pend === 'object' && Date.now() - (pend.t || 0) < 15 * 60 * 1000;
+      const site = normUrl(p.get('site_url') || '');
+      if (fresh && (!site || hostOf(site) === hostOf(pend.url))) {
+        saveSite(pend.url, { user: p.get('user_login'), pass: p.get('password'), mode: '', verified: false });
+        setActive(pend.url); returnNote = 'ok';
+      } else returnNote = 'unknown';
+      BK.store.set('wpPending', null);
       history.replaceState(null, '', location.pathname);
     } else if (p.get('wp_rejected') || p.get('success') === 'false') {
       returnNote = 'rejected'; history.replaceState(null, '', location.pathname);
@@ -80,6 +96,7 @@
   function saveManual() {
     const url = normUrl($('wpUrl').value), user = $('wpUser').value.trim(), pass = $('wpPass').value.trim();
     if (!url || !user || !pass) { setMsg('wpMsg', 'Isi alamat website, username, dan Application Password.', false); return; }
+    if (insecure(url)) { setMsg('wpMsg', friendly({ code: 'insecure' }), false); return; }
     saveSite(url, { user, pass, mode: '', verified: false }); setActive(url); renderBox(); test();
   }
   // Pastikan login benar-benar terbaca WordPress. Bila hosting membuang header Authorization
@@ -213,7 +230,7 @@ ${body}`;
     }
     let body = html;
     if (related.length) {
-      const baca = `<p><strong>Baca juga:</strong> ${related.map((r) => `<a href="${esc(r.link)}">${esc(strip(r.title && r.title.rendered))}</a>`).join(' | ')}</p>`;
+      const baca = `<p><strong>Baca juga:</strong> ${related.map((r) => `<a href="${esc(safeHref(r.link))}">${esc(strip(r.title && r.title.rendered))}</a>`).join(' | ')}</p>`;
       const parts = body.split('</p>');
       if (parts.length > 4) { parts.splice(3, 0, ''); body = parts.slice(0, 3).join('</p>') + '</p>\n' + baca + parts.slice(3).join('</p>'); }
       else body += '\n' + baca;
@@ -369,7 +386,7 @@ ${body}`;
       st.postId = post.id; st.postLink = post.link; st.postStatus = post.status;
       step(2, 'ok', `#${post.id} (${{ draft: 'draf', publish: 'terbit', future: 'terjadwal', pending: 'menunggu tinjauan' }[post.status] || post.status})`);
       const edit = `${activeUrl()}/wp-admin/post.php?post=${post.id}&action=edit`;
-      $('wpDone').innerHTML = `✓ Berhasil. <a href="${esc(edit)}" target="_blank" rel="noopener">Edit di WordPress ↗</a> · <a href="${esc(post.link)}" target="_blank" rel="noopener">${post.status === 'publish' ? 'Lihat pos' : 'Pratinjau'} ↗</a>` +
+      $('wpDone').innerHTML = `✓ Berhasil. <a href="${esc(safeHref(edit))}" target="_blank" rel="noopener">Edit di WordPress ↗</a> · <a href="${esc(safeHref(post.link))}" target="_blank" rel="noopener">${post.status === 'publish' ? 'Lihat pos' : 'Pratinjau'} ↗</a>` +
         ` <button type="button" class="secondary small" data-share="article">📤 Bagikan tautan artikel</button>` +
         (plugin ? '' : '<br><span class="err-text">Plugin Berita Kilat Connector belum aktif, jadi kolom Yoast belum terisi. Salin data Yoast di atas ke editor, atau pasang plugin (Pengaturan → Website WordPress).</span>');
       btn.textContent = 'Perbarui pos di WordPress';
@@ -540,4 +557,5 @@ ${body}`;
   renderBox(); renderCard(); counters();
   if (returnNote === 'ok') setTimeout(() => { $('dlg').showModal(); $('wpBox').scrollIntoView({ block: 'start' }); test(); }, 400);
   else if (returnNote === 'rejected') setTimeout(() => BK.status('Koneksi ke WordPress dibatalkan.', 'err'), 400);
+  else if (returnNote === 'unknown') setTimeout(() => BK.status('Permintaan koneksi WordPress yang tidak dikenal diabaikan. Gunakan tombol Hubungkan di Pengaturan.', 'err'), 400);
 })();

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Berita Kilat Connector
  * Description: Menghubungkan app Berita Kilat: membuka kolom Yoast SEO (focus keyphrase, judul SEO, meta description, kategori utama) untuk REST API, dan menyediakan jalur login cadangan bila hosting menghapus header Authorization (umum di LiteSpeed/Hostinger).
- * Version:     1.1.0
+ * Version:     1.1.1
  * Author:      Berita Kilat
  * License:     GPL-2.0-or-later
  * Requires at least: 5.6
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BERITA_KILAT_CONNECTOR_VERSION', '1.1.0' );
+define( 'BERITA_KILAT_CONNECTOR_VERSION', '1.1.1' );
 
 /*
  * Jalur login cadangan.
@@ -52,9 +52,9 @@ add_filter( 'rest_allowed_cors_headers', function ( $headers ) {
 } );
 
 add_action( 'init', function () {
-	// Hanya pengguna yang boleh mengedit pos yang dapat membaca/menulis kolom ini.
-	$can_edit = function () {
-		return current_user_can( 'edit_posts' );
+	// Hanya pengguna yang boleh mengedit pos INI (bukan sembarang pos) yang dapat menulis kolom ini.
+	$can_edit = function ( $allowed, $meta_key, $object_id, $user_id ) {
+		return $object_id ? user_can( $user_id, 'edit_post', $object_id ) : user_can( $user_id, 'edit_posts' );
 	};
 
 	$text_fields = array( '_yoast_wpseo_focuskw', '_yoast_wpseo_title', '_yoast_wpseo_metadesc' );

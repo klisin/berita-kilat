@@ -77,7 +77,8 @@ Pintasan: `https://USERNAME.github.io/berita-kilat/?url=LINK_BERITA` langsung me
 
 ## Catatan
 
-- API key dan pengaturan tersimpan di browser Anda sendiri (localStorage), tidak di repo.
+- API key dan pengaturan tersimpan di browser Anda sendiri (localStorage), tidak di repo. Gunakan app di perangkat pribadi; di komputer bersama, hapus data situs setelah selesai.
+- **Keamanan:** halaman memakai Content-Security-Policy (hanya skrip dari app sendiri, jsDelivr, dan Puter yang boleh berjalan) dan skrip mp4-muxer dikunci dengan Subresource Integrity. Semua teks dari luar (artikel, AI, hasil pencarian, WordPress) di-escape atau disaring sebelum ditampilkan. Koneksi WordPress hanya diterima dari tombol **Hubungkan** di browser ini (tautan pihak lain diabaikan) dan wajib https.
 - Artikel diambil lewat proxy CORS publik (allorigins, corsproxy.io, codetabs) dengan cadangan r.jina.ai. Bila situs memblokir, buka bagian **Bahan artikel**, tempel judul & isi, lalu klik **Pakai bahan ini**.
 - Foto gambar punya tiga pilihan: **Otomatis** (dari link), **🔍 Pilih foto lain** (galeri berisi foto lain di artikel, Wikimedia Commons, Openverse, dan Pexels bila ada key; bisa cari dengan kata kunci sendiri; kredit foto otomatis masuk ke *Keterangan sumber*), dan **⬆ Unggah**. Foto yang dipilih juga dipakai di Hook & Penutup video.
 - Foto otomatis diambil dari link berita. Bila sumber tidak punya foto atau foto gagal diambil, kotak **Unggah foto manual** muncul di bawah gambar. Jika foto otomatis kurang cocok, klik **Foto kurang cocok? Unggah sendiri**.

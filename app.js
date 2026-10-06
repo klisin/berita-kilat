@@ -263,9 +263,26 @@
   }
 
   // ---------- Gambar ----------
+  // URL blob: dilepas setelah gambar ter-decode (gambar tetap bisa digambar) agar memori tidak menumpuk
   function loadImage(src) {
-    return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+    return new Promise((res, rej) => {
+      const im = new Image();
+      const free = () => { if (/^blob:/.test(src)) URL.revokeObjectURL(src); };
+      im.onload = () => { free(); res(im); }; im.onerror = (e) => { free(); rej(e); };
+      im.src = src;
+    });
   }
+  // Thumbnail kecil (data URL) dari gambar/video yang sudah dimuat, untuk pratinjau di UI
+  function thumb(el, size = 128) {
+    if (!el) return '';
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      withCtx(c.getContext('2d'), () => drawCover(el, 0, 0, size, size, 0.4));
+      return c.toDataURL('image/jpeg', 0.7);
+    } catch { return ''; }
+  }
+  // Nama file dari judul gambar, dipakai untuk PNG, video, dan file yang dibagikan
+  const slug = (fallback = 'posting') => ($('headline').value || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50).replace(/^-|-$/g, '') || fallback;
   async function loadRemoteImage(url) {
     const tries = [
       'https://images.weserv.nl/?url=' + encodeURIComponent(url.replace(/^https?:\/\//, '')) + '&w=2000&output=jpg&q=90',
@@ -756,8 +773,7 @@ ${body}`;
     draw();
     try {
       const a = document.createElement('a');
-      const slug = ($('headline').value || 'posting').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50).replace(/-$/, '');
-      a.download = slug + '.png'; a.href = cv.toDataURL('image/png'); a.click();
+      a.download = slug() + '.png'; a.href = cv.toDataURL('image/png'); a.click();
     } catch { status('Gambar tidak bisa diunduh karena foto dari server lain. Silakan unggah foto manual.', 'err'); photoUi('fail'); }
   });
   $('btnCopy').addEventListener('click', async () => {
@@ -843,7 +859,7 @@ ${body}`;
   });
 
   // ---------- API untuk video.js ----------
-  window.BK = { state, S, store, status, withCtx, drawCover, fitText, wrap, roundRect, drawBrand, drawKicker, fmtDate, escapeHtml, loadRemoteImage, loadImage, parseJson, clean };
+  window.BK = { state, S, store, status, withCtx, drawCover, fitText, wrap, roundRect, drawBrand, drawKicker, fmtDate, escapeHtml, loadRemoteImage, loadImage, parseJson, clean, slug, thumb };
 
   // ---------- Init ----------
   loadSettings();
