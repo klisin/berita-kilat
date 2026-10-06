@@ -69,7 +69,14 @@
         </div>
         <label class="lbl" for="credit">Keterangan sumber</label>
         <input id="credit" type="text" placeholder="Sumber: kompas.com">
+        <label class="lbl">Foto</label>
+        <div class="seg seg-full" id="photoSeg">
+          <button type="button" data-pm="auto" class="on">Otomatis</button>
+          <button type="button" data-pm="pick">🔍 Pilih foto lain</button>
+          <button type="button" data-pm="upload">⬆ Unggah</button>
+        </div>
         <p class="hint" id="photoInfo">Foto diambil otomatis dari link berita.</p>
+        <div id="photoPicker" class="photo-picker" hidden></div>
         <div id="photoUpload" class="photo-upload" hidden>
           <label class="lbl" for="photoFile">Unggah foto manual</label>
           <input id="photoFile" type="file" accept="image/*">
@@ -84,7 +91,10 @@
             <input id="focusY" type="range" min="0" max="1" step="0.05" value="0.35">
           </div>
         </div>
-        <button id="btnDownload" class="primary block" type="button">⬇ Unduh PNG</button>
+        <div class="two btn-pair">
+          <button id="btnDownload" class="primary" type="button">⬇ Unduh PNG</button>
+          <button class="secondary" type="button" data-share="image">📤 Bagikan</button>
+        </div>
       </div>
     </section>
 
@@ -92,10 +102,8 @@
     <section class="card">
       <div class="card-h">
         <h2>Caption 5W+1H</h2>
-        <select id="engine" title="Mesin caption">
-          <option value="gemini">Gemini</option>
-          <option value="claude">Claude</option>
-          <option value="template">Template (tanpa AI)</option>
+        <select id="engine" title="Mesin AI untuk caption">
+          <option value="auto">✦ Otomatis (terbaik yang tersedia)</option>
         </select>
       </div>
       <div class="two">
@@ -114,6 +122,9 @@
             <option value="Facebook">Facebook</option>
             <option value="X/Twitter">X / Twitter</option>
             <option value="LinkedIn">LinkedIn</option>
+            <option value="TikTok">TikTok</option>
+            <option value="Instagram Reels">Instagram Reels</option>
+            <option value="YouTube Shorts">YouTube Shorts</option>
           </select>
         </div>
       </div>
@@ -125,6 +136,7 @@
       <textarea id="caption" rows="14" placeholder="Caption akan muncul di sini"></textarea>
       <div class="row gap">
         <button id="btnCopy" class="primary" type="button">Salin caption</button>
+        <button class="secondary" type="button" data-share="text">📤 Bagikan</button>
         <span class="muted" id="wordCount"></span>
       </div>
 
@@ -144,7 +156,140 @@
       </details>
     </section>
   </div>
+
+  <!-- VIDEO SHORT -->
+  <section class="card" id="videoCard">
+    <div class="card-h">
+      <h2>Video Short <span class="muted">9:16 · 15 / 30 / 60 detik · TikTok, Reels, Shorts</span></h2>
+    </div>
+    <div class="vgrid">
+      <div class="vprev-box">
+        <canvas id="vcv" width="1080" height="1920"></canvas>
+        <div class="row gap center">
+          <button id="btnVPlay" class="secondary" type="button">▶ Putar pratinjau</button>
+        </div>
+      </div>
+      <div>
+        <p class="hint" style="margin-top:0">Naskah dibuat otomatis bersama caption. Sunting bila perlu. Jumlah poin yang tampil menyesuaikan durasi: 15 detik ±3 poin, 30–60 detik hingga 6 poin.</p>
+        <label class="lbl" for="vHook">Hook (pembuka)</label>
+        <textarea id="vHook" rows="2" placeholder="Kalimat pembuka, maks. 10 kata"></textarea>
+        <div id="vPoints"></div>
+        <label class="lbl" for="vOutro">Penutup</label>
+        <input id="vOutro" type="text" placeholder="Baca selengkapnya di tautan bio">
+        <div class="two">
+          <div>
+            <label class="lbl" for="vDur">Durasi</label>
+            <select id="vDur">
+              <option value="15" selected>15 detik</option>
+              <option value="30">30 detik</option>
+              <option value="60">60 detik</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl" for="vMusic">Musik latar (opsional)</label>
+            <input id="vMusic" type="file" accept="audio/*">
+          </div>
+        </div>
+        <div class="two" id="vMusicCtl" hidden>
+          <div><label class="lbl" for="vVol">Volume musik</label><input id="vVol" type="range" min="0.05" max="1" step="0.05" value="0.7"></div>
+          <div><label class="lbl" for="vMusicStart">Mulai dari detik ke-</label><input id="vMusicStart" type="range" min="0" max="60" step="1" value="0"></div>
+        </div>
+        <div class="row gap" id="vMusicInfo" hidden><span class="muted" id="vMusicName"></span><button type="button" class="ghost small" id="btnVMusicClear">Hapus musik</button></div>
+        <p class="hint">Tanpa musik, video bisu. Untuk jangkauan terbaik, tambahkan sound trending langsung di aplikasi TikTok/Instagram/YouTube.</p>
+        <button id="btnVRender" class="primary block" type="button">⬇ Render &amp; unduh video</button>
+        <button class="secondary block" type="button" data-share="video" style="margin-top:8px">📤 Bagikan video</button>
+        <div class="vprog" id="vProg" hidden><div id="vProgBar"></div></div>
+        <p class="hint" id="vInfo"></p>
+      </div>
+    </div>
+    <div class="foot" id="footBox"></div>
+  </section>
+
+  <!-- POSTING KE WORDPRESS -->
+  <section class="card" id="wpCard">
+    <div class="card-h">
+      <h2>Posting ke WordPress <span class="muted">artikel gaya Kompas + Yoast SEO</span></h2>
+    </div>
+    <p class="hint" id="wpTarget" style="margin-top:0"></p>
+    <div class="row gap">
+      <select id="wpLen" title="Panjang artikel" style="max-width:220px">
+        <option value="pendek">Pendek (300–400 kata)</option>
+        <option value="sedang" selected>Sedang (500–700 kata)</option>
+        <option value="panjang">Panjang (800–1.000 kata)</option>
+      </select>
+      <button type="button" class="primary" id="wpWrite" data-wp="write">✦ Tulis artikel dengan AI</button>
+    </div>
+    <p class="hint" id="wpCardMsg"></p>
+
+    <div class="wpgrid">
+      <div>
+        <label class="lbl" for="wpTitle">Judul artikel <span class="wp-count" id="wpTitleN"></span></label>
+        <input id="wpTitle" type="text" placeholder="Judul akan terisi otomatis">
+        <label class="lbl" for="wpSlug">Slug (alamat URL)</label>
+        <input id="wpSlug" type="text" placeholder="judul-berita-singkat">
+        <label class="lbl" for="wpContent">Isi artikel (HTML) <span class="wp-count" id="wpWords"></span></label>
+        <textarea id="wpContent" rows="16" placeholder="Isi artikel akan terisi otomatis"></textarea>
+        <div class="row gap"><button type="button" class="ghost small" data-wp="preview">Pratinjau</button></div>
+        <div id="wpPreview" class="wp-preview" hidden></div>
+        <label class="lbl" for="wpExcerpt">Ringkasan (excerpt)</label>
+        <textarea id="wpExcerpt" rows="2"></textarea>
+      </div>
+      <div>
+        <label class="lbl">Kategori</label>
+        <div id="wpCats" class="wp-cats"></div>
+        <label class="lbl" for="wpPrimary">Kategori utama (Yoast)</label>
+        <select id="wpPrimary"></select>
+        <label class="lbl" for="wpTags">Tag (pisahkan dengan koma)</label>
+        <input id="wpTags" type="text" placeholder="Kereta Cepat, Jakarta, Semarang">
+
+        <div class="wp-yoast">
+          <div class="row" style="justify-content:space-between"><b>Yoast SEO</b><button type="button" class="ghost small" data-wp="copyseo">Salin</button></div>
+          <label class="lbl" for="wpKw">Focus keyphrase</label>
+          <input id="wpKw" type="text">
+          <label class="lbl" for="wpSeoTitle">Judul SEO <span class="wp-count" id="wpSeoTitleN"></span></label>
+          <input id="wpSeoTitle" type="text">
+          <label class="lbl" for="wpMeta">Meta description <span class="wp-count" id="wpMetaN"></span></label>
+          <textarea id="wpMeta" rows="3"></textarea>
+        </div>
+
+        <label class="lbl">Gambar unggulan (16:9)</label>
+        <div class="seg seg-full" id="wpFeatSeg">
+          <button type="button" data-fs="card" class="on">Foto kartu Gambar</button>
+          <button type="button" data-fs="pick">🔍 Pilih foto lain</button>
+          <button type="button" data-fs="upload">⬆ Unggah</button>
+        </div>
+        <input type="file" id="wpFeatFile" accept="image/*" hidden>
+        <div id="wpFeatPicker" class="photo-picker" hidden></div>
+        <canvas id="wpFeat" width="480" height="270" class="wp-feat" style="margin-top:8px"></canvas>
+        <label class="lbl" for="wpAlt">Teks alternatif (alt)</label>
+        <input id="wpAlt" type="text">
+        <label class="lbl" for="wpCaption">Keterangan / kredit foto</label>
+        <input id="wpCaption" type="text">
+
+        <label class="lbl">Status</label>
+        <div class="wp-status">
+          <label><input type="radio" name="wpStatus" value="draft" checked> Draf</label>
+          <label><input type="radio" name="wpStatus" value="publish"> Terbitkan</label>
+          <label><input type="radio" name="wpStatus" value="future"> Jadwalkan</label>
+        </div>
+        <div id="wpDateBox" hidden><input id="wpDate" type="datetime-local"></div>
+        <label class="ft-opt" id="wpNoEmailBox" hidden><input type="checkbox" id="wpNoEmail"> Jangan kirim email ke pelanggan (Jetpack)</label>
+        <button type="button" class="primary block" id="wpSend" data-wp="send">Kirim ke WordPress</button>
+        <ol id="wpSteps" class="wp-steps" hidden>
+          <li>Gambar unggulan <span></span></li>
+          <li>Tag <span></span></li>
+          <li>Artikel <span></span></li>
+        </ol>
+        <p class="hint" id="wpDone"></p>
+      </div>
+    </div>
+  </section>
 </main>
+
+<!-- BAGIKAN -->
+<dialog id="shareDlg">
+  <div class="dlg" id="shareBox"></div>
+</dialog>
 
 <!-- SETTINGS -->
 <dialog id="dlg">
@@ -229,19 +374,10 @@
     <label class="lbl" for="sDateline">Dateline caption (opsional)</label>
     <input id="sDateline" type="text" placeholder="mis. KALAWACA — kosongkan untuk memakai nama media">
 
-    <h3>Gemini</h3>
-    <div class="two">
-      <div><label class="lbl" for="gKey">API key</label><input id="gKey" type="password" placeholder="AIza..."></div>
-      <div><label class="lbl" for="gModel">Model</label><input id="gModel" type="text" value="gemini-2.5-flash"></div>
-    </div>
-    <p class="hint">Gratis di <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
-
-    <h3>Claude</h3>
-    <div class="two">
-      <div><label class="lbl" for="cKey">API key</label><input id="cKey" type="password" placeholder="sk-ant-..."></div>
-      <div><label class="lbl" for="cModel">Model</label><input id="cModel" type="text" value="claude-sonnet-4-5"></div>
-    </div>
-    <p class="hint">Buat di <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. Nama model bisa diganti sesuai yang tersedia.</p>
+    <div id="aiBox"></div>
+    <div id="footKeyBox"></div>
+    <div id="wpBox"></div>
+    <input id="wpSite" type="hidden" value="">
 
     <h3>Lanjutan</h3>
     <label class="lbl" for="sProxy">Proxy CORS tambahan (opsional, akhiri dengan ?url= atau sejenisnya)</label>
@@ -253,6 +389,12 @@
   </form>
 </dialog>
 
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
+<script src="ai.js"></script>
 <script src="app.js"></script>
+<script src="footage.js"></script>
+<script src="wp.js"></script>
+<script src="video.js"></script>
+<script src="share.js"></script>
 </body>
 </html>

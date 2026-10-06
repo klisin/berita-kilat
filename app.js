@@ -22,10 +22,10 @@
 
   // ---------- Pengaturan ----------
   const FX_IDS = ['sLogoFx', 'sLogoFxAmt', 'sLogoContrast', 'sLogoBright'];
-  const settingIds = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'gKey', 'gModel', 'cKey', 'cModel', 'sProxy'];
+  const settingIds = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'sProxy', 'wpSite'];
   const optIds = ['engine', 'length', 'platform', 'style'];
   // Isi preset akun media (API key sengaja tidak ikut)
-  const PRESET_IDS = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'style', 'platform'];
+  const PRESET_IDS = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'style', 'platform', 'wpSite'];
   function loadSettings() {
     settingIds.concat(optIds).forEach((id) => { const v = store.get(id, null); if (v !== null) $(id).value = v; });
     const logo = store.get('logo', null);
@@ -77,6 +77,7 @@
     await setLogoData(p.logo || null);
     setBrandMode($('sBrandMode').value);
     store.set('activePreset', name); saveSettings(); renderPresets(); draw();
+    if (window.BKWP) window.BKWP.refresh(); // tiap preset bisa terhubung ke website berbeda
     presetMsg(`Preset "${name}" dipakai.`);
     status(`Akun media: <b>${escapeHtml(name)}</b>`, 'ok');
   }
@@ -189,12 +190,31 @@
     return out[0] || null;
   }
   const JUNK = /^(baca juga|simak juga|lihat juga|baca selengkapnya|dapatkan update|ikuti kami|follow|klik|download|unduh aplikasi|artikel ini|editor\s*:|penulis\s*:|sumber\s*:|copyright|©|tonton|saksikan|video)/i;
-  function bodyFromDom(doc) {
+  function articleRoot(doc) {
     const sels = ['[itemprop="articleBody"]', '.read__content', '.detail__body-text', '.detail-text', '.post-content', '.entry-content',
       '.article-content', '.article__content', '.content-detail', '.itp_bodycontent', '.txt-article', '.detail_text', 'article', 'main'];
-    let root = null;
-    for (const s of sels) { const el = doc.querySelector(s); if (el && el.querySelectorAll('p').length >= 2) { root = el; break; } }
-    root = root || doc.body;
+    for (const s of sels) { const el = doc.querySelector(s); if (el && el.querySelectorAll('p').length >= 2) return el; }
+    return doc.body;
+  }
+  // Foto lain di dalam artikel (untuk footage video): buang logo/ikon/iklan/gambar kecil
+  const IMG_JUNK = /logo|icon|avatar|sprite|pixel|banner|ads?[\/_-]|placeholder|loading|blank|emoji|\.svg|\.gif/i;
+  function articleImages(doc, abs, main) {
+    const root = articleRoot(doc) || doc.body;
+    const out = [];
+    const add = (u) => { u = abs((u || '').trim()); if (u && /^https?:/.test(u) && !IMG_JUNK.test(u) && !out.includes(u)) out.push(u); };
+    if (main) add(main);
+    (root ? root.querySelectorAll('img') : []).forEach((im) => {
+      if (im.closest('aside,nav,footer,header,.related,.ads,[class*="related"],[class*="share"],[class*="author"]')) return;
+      const w = parseInt(im.getAttribute('width') || '0', 10);
+      if (w && w < 300) return;
+      const set = im.getAttribute('data-srcset') || im.getAttribute('srcset') || '';
+      const big = set ? set.split(',').map((x) => x.trim().split(/\s+/)[0]).pop() : '';
+      add(im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || im.getAttribute('data-original') || big || im.getAttribute('src'));
+    });
+    return out.slice(0, 12);
+  }
+  function bodyFromDom(doc) {
+    const root = articleRoot(doc);
     if (!root) return '';
     const paras = [];
     root.querySelectorAll('p').forEach((p) => {
@@ -225,7 +245,8 @@
       description: meta(doc, 'og:description', 'description', 'twitter:description'),
       body,
       author: clean(author),
-      section: meta(doc, 'article:section', 'content_category', 'section') || (ld && clean([].concat(ld.articleSection || [])[0])) || ''
+      section: meta(doc, 'article:section', 'content_category', 'section') || (ld && clean([].concat(ld.articleSection || [])[0])) || '',
+      images: articleImages(doc, abs, image)
     };
   }
   function parseJina(txt, url) {
@@ -236,7 +257,8 @@
       .filter((p) => p.length > 60 && !JUNK.test(p));
     return {
       url, title: get('Title'), site: new URL(url).hostname.replace(/^www\./, ''), date: get('Published Time'),
-      image: img, description: paras[0] || '', body: paras.join('\n\n'), author: '', section: ''
+      image: img, description: paras[0] || '', body: paras.join('\n\n'), author: '', section: '',
+      images: [...new Set([...content.matchAll(/!\[[^\]]*\]\((https?:[^)\s]+)\)/g)].map((m) => m[1]))].filter((u) => !IMG_JUNK.test(u)).slice(0, 12)
     };
   }
 
@@ -272,7 +294,10 @@
   }
 
   // ---------- Kanvas ----------
-  const cv = $('cv'), ctx = cv.getContext('2d');
+  const cv = $('cv');
+  let ctx = cv.getContext('2d');
+  // Arahkan sementara semua helper menggambar ke canvas lain (dipakai video.js)
+  function withCtx(c, fn) { const prev = ctx; ctx = c; try { return fn(); } finally { ctx = prev; } }
   function wrap(text, maxW) {
     const words = text.split(/\s+/).filter(Boolean), lines = [];
     let line = '';
@@ -369,7 +394,7 @@
       const h = Math.round(64 * s.logoScale);
       const src = logoSource(s);
       const ratio = src.width && src.height ? src.width / src.height : 1;
-      const lw = Math.min(cv.width * (s.mode === 'both' ? 0.35 : 0.55), h * ratio);
+      const lw = Math.min(ctx.canvas.width * (s.mode === 'both' ? 0.35 : 0.55), h * ratio);
       const lh = lw / ratio;
       const plate = s.fx === 'plate' || s.fx === 'plateDark';
       const pad = plate ? Math.round(10 + 8 * s.fxAmt) : 0;
@@ -476,6 +501,8 @@
       drawFooter(ix, py + ph - 44, iw, 'rgba(255,255,255,.75)');
     }
     if ($('dlg').open) drawBrandPreview();
+    if (window.BKVideo) window.BKVideo.refresh();
+    if (window.BKWP) window.BKWP.featuredPreview();
   }
   // Pratinjau di Pengaturan: potongan bagian atas gambar (area merek)
   function drawBrandPreview() {
@@ -505,9 +532,10 @@ ATURAN JURNALISTIK
 7. "judul_gambar": judul untuk ditaruh di foto, maks. 12 kata, informatif, aktif, bukan clickbait, tanpa titik di akhir.
 8. "kicker": 1–2 kata rubrik dalam huruf kapital (mis. NASIONAL, EKONOMI, OLAHRAGA, PENDIDIKAN).
 9. "hashtags": 3–6 tagar relevan dalam Bahasa Indonesia, tanpa spasi.
+10. "video": naskah video pendek vertikal (TikTok/Reels/Shorts, 15–60 detik). "hook": kalimat pembuka yang membuat penonton berhenti menggulir, maks. 12 kata, tetap faktual, bukan clickbait. "poin": tepat 6 kalimat penjelasan, diurutkan dari yang terpenting (3 poin pertama harus sudah menjawab apa, siapa, kapan, di mana; berikutnya mengapa, bagaimana, dan konteks/dampak). Setiap poin adalah SATU kalimat lengkap Bahasa Indonesia baku dengan pola SPOK (Subjek, Predikat, Objek, Keterangan), 14–24 kata, berdiri sendiri tanpa label. "penutup": ajakan singkat maks. 8 kata (mis. "Baca selengkapnya di tautan bio"). "footage": tepat 7 item kata kunci pencarian foto untuk latar video (urutan: hook, lalu poin 1–6); setiap item {"id": kata kunci spesifik Bahasa Indonesia 2–4 kata berupa tempat, objek, atau peristiwa nyata yang bisa difoto (mis. "Stasiun Halim kereta cepat"), "en": kata kunci foto stok umum Bahasa Inggris 2–4 kata berupa objek visual tanpa nama orang (mis. "high speed train station")}.
 
 Balas HANYA dengan JSON valid tanpa teks lain, dengan struktur:
-{"judul_gambar":"","kicker":"","w5h1":{"apa":"","siapa":"","kapan":"","di_mana":"","mengapa":"","bagaimana":""},"caption":"","hashtags":[""]}
+{"judul_gambar":"","kicker":"","w5h1":{"apa":"","siapa":"","kapan":"","di_mana":"","mengapa":"","bagaimana":""},"caption":"","hashtags":[""],"video":{"hook":"","poin":["","","","","",""],"penutup":"","footage":[{"id":"","en":""}]}}
 
 ARTIKEL
 Judul: ${a.title}
@@ -524,31 +552,6 @@ ${body}`;
     if (i >= 0 && j > i) t = t.slice(i, j + 1);
     return JSON.parse(t);
   }
-  async function callGemini(prompt) {
-    const key = $('gKey').value.trim();
-    if (!key) throw new Error('API key Gemini belum diisi di Pengaturan.');
-    const model = $('gModel').value.trim() || 'gemini-2.5-flash';
-    const r = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, responseMimeType: 'application/json' } })
-    }, 90000);
-    const j = await r.json();
-    if (!r.ok) throw new Error('Gemini: ' + ((j.error && j.error.message) || r.status));
-    const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
-    return parts.map((p) => p.text || '').join('');
-  }
-  async function callClaude(prompt) {
-    const key = $('cKey').value.trim();
-    if (!key) throw new Error('API key Claude belum diisi di Pengaturan.');
-    const r = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: $('cModel').value.trim() || 'claude-sonnet-4-5', max_tokens: 2000, temperature: 0.4, messages: [{ role: 'user', content: prompt }] })
-    }, 90000);
-    const j = await r.json();
-    if (!r.ok) throw new Error('Claude: ' + ((j.error && j.error.message) || r.status));
-    return (j.content || []).map((c) => c.text || '').join('');
-  }
   function templateCaption(a) {
     const s = S();
     const dl = (s.dateline || s.name).toUpperCase();
@@ -556,7 +559,16 @@ ${body}`;
     const lead = a.description || paras[0] || a.title;
     const rest = paras.filter((p) => p !== lead).slice(0, $('length').value === 'pendek' ? 1 : $('length').value === 'sedang' ? 2 : 4);
     const text = [`JAKARTA, ${dl} — ${lead}`, ...rest, `Sumber: ${a.site}. Baca selengkapnya di tautan pada bio.`].join('\n\n');
-    return { judul_gambar: a.title, kicker: a.section ? a.section.toUpperCase().split(/\s+/).slice(0, 2).join(' ') : '', w5h1: null, caption: text, hashtags: [] };
+    const words = (t, n) => { const w = clean(t).split(' '); return w.length > n ? w.slice(0, n).join(' ') + '…' : w.join(' '); };
+    // Kalimat utuh dari artikel (bukan dipotong) agar tetap SPOK; kalimat sangat panjang baru dipangkas
+    const sentences = (a.body || a.description || '').split(/(?<=[.!?])\s+/).map(clean).filter((x) => x.length > 30);
+    const video = {
+      hook: words($('headline').value || a.title, 12),
+      poin: sentences.slice(0, 6).map((x) => words(x, 32)),
+      penutup: 'Baca selengkapnya di tautan bio'
+    };
+    video.footage = [video.hook, ...video.poin].map((t) => ({ id: photoKeywords(t), en: '' }));
+    return { judul_gambar: a.title, kicker: a.section ? a.section.toUpperCase().split(/\s+/).slice(0, 2).join(' ') : '', w5h1: null, caption: text, hashtags: [], video };
   }
   function renderW5h1(w) {
     const el = $('w5h1'); el.innerHTML = '';
@@ -579,10 +591,17 @@ ${body}`;
     const old = btn.innerHTML; btn.innerHTML = '<span class="spin"></span>Menulis caption…';
     try {
       let out;
+      let used = null, notes = [];
       if (engine === 'template') out = templateCaption(a);
       else {
-        const raw = engine === 'gemini' ? await callGemini(buildPrompt(a)) : await callClaude(buildPrompt(a));
-        out = parseJson(raw);
+        // Penyedia pilihan dulu, lalu cadangan otomatis (lihat ai.js); terakhir template
+        try {
+          const r = await window.BKAI.generate(buildPrompt(a), engine, {
+            validate: parseJson,
+            onStatus: (m) => status('<span class="spin"></span>' + escapeHtml(m))
+          });
+          out = r.data; used = r.providerName; notes = r.notes;
+        } catch (e) { notes = e.notes || [e.message]; out = templateCaption(a); }
       }
       const tags = (out.hashtags || []).map((t) => '#' + String(t).replace(/^#/, '').replace(/\s+/g, '')).filter((t) => t.length > 1);
       $('caption').value = clean2(out.caption) + (tags.length ? '\n\n' + tags.join(' ') : '');
@@ -590,11 +609,21 @@ ${body}`;
       if (updateHeadline && out.judul_gambar) $('headline').value = out.judul_gambar.replace(/\.$/, '');
       if (updateHeadline && out.kicker) $('kicker').value = out.kicker.toUpperCase();
       countWords(); draw();
-      status(engine === 'template' ? 'Caption template dibuat. Untuk hasil 5W+1H yang utuh, pilih Gemini atau Claude.' : 'Selesai. Periksa kembali fakta sebelum diunggah.', 'ok');
+      setVideoScript(out.video || templateCaption(a).video);
+      const tried = notes.length ? `<br><span class="muted">Dicoba sebelumnya: ${escapeHtml(notes.join('; '))}</span>` : '';
+      const setup = ' <button type="button" class="linkish" data-open-ai>Atur Mesin AI</button>';
+      if (used) status(`Selesai dengan <b>${escapeHtml(used)}</b>. Periksa kembali fakta sebelum diunggah.${tried}`, 'ok');
+      else if (engine === 'template') status('Caption template dibuat. Untuk caption 5W+1H yang utuh, pilih mesin AI.' + setup, 'ok');
+      else status(`Belum ada mesin AI yang berhasil, jadi dipakai mode template.${setup}${tried}`, 'err');
     } catch (e) {
-      status('Gagal membuat caption: ' + escapeHtml(e.message) + (engine !== 'template' ? ' — mencoba mode template.' : ''), 'err');
-      if (engine !== 'template') { const out = templateCaption(a); $('caption').value = out.caption; renderW5h1(null); countWords(); }
+      status('Gagal membuat caption: ' + escapeHtml(e.message), 'err');
     } finally { btn.disabled = false; btn.innerHTML = old; }
+  }
+  function setVideoScript(v) {
+    state.video = v || null;
+    if (window.BKVideo) window.BKVideo.setScript(state.video);
+    // Cari footage per adegan di latar belakang (tidak menahan caption)
+    if (window.BKFootage && state.video) window.BKFootage.autoFill(state.video.footage || [], state.article);
   }
   const clean2 = (s) => String(s || '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -608,23 +637,50 @@ ${body}`;
     $('kicker').value = a.section ? a.section.toUpperCase().split(/\s+/).slice(0, 2).join(' ') : '';
     $('credit').value = `Sumber: ${a.site}${a.date ? ' • ' + fmtDate(a.date, true) : ''}`;
   }
-  // Foto default diambil dari link; unggah manual hanya muncul bila foto tidak ada/gagal
-  function photoUi(mode) {
-    const info = $('photoInfo'), box = $('photoUpload');
-    if (mode === 'ok') {
-      info.innerHTML = 'Foto diambil dari sumber berita. <button type="button" class="linkish" id="btnShowUpload">Foto kurang cocok? Unggah sendiri</button>';
-      $('btnShowUpload').addEventListener('click', () => photoUi('fail'));
-      box.hidden = true;
-    } else if (mode === 'fail') {
-      info.textContent = 'Foto dari sumber tidak tersedia atau tidak bisa diambil. Silakan unggah foto manual.';
-      box.hidden = false;
-    } else if (mode === 'manual') {
-      info.textContent = 'Memakai foto unggahan Anda.';
-      box.hidden = false;
-    } else {
-      info.textContent = 'Foto diambil otomatis dari link berita.';
-      box.hidden = true;
-    }
+  // Tiga pilihan foto: Otomatis (dari link) · Pilih foto lain (galeri pencarian) · Unggah
+  function photoUi(mode, note) {
+    const info = $('photoInfo'), box = $('photoUpload'), picker = $('photoPicker');
+    const tab = { ok: 'auto', auto: 'auto', picked: 'pick', pick: 'pick', manual: 'upload', upload: 'upload' }[mode] || '';
+    document.querySelectorAll('#photoSeg button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.pm === tab);
+      b.classList.toggle('suggest', mode === 'fail' && b.dataset.pm === 'pick');
+    });
+    box.hidden = !(tab === 'upload' || mode === 'fail');
+    if (tab !== 'pick') picker.hidden = true;
+    if (mode === 'ok') info.textContent = 'Foto diambil dari sumber berita.';
+    else if (mode === 'fail') info.textContent = 'Foto dari sumber tidak tersedia atau tidak bisa diambil. Pilih foto lain dari galeri atau unggah foto sendiri.';
+    else if (mode === 'manual') info.textContent = 'Memakai foto unggahan Anda.';
+    else if (mode === 'upload') info.textContent = 'Pilih file foto dari perangkat Anda.';
+    else if (mode === 'pick') info.textContent = 'Klik foto di galeri untuk memakainya. Bisa cari dengan kata kunci sendiri.';
+    else if (mode === 'picked') info.textContent = `Memakai foto dari ${note || 'galeri'}. Foto ini juga dipakai di Hook & Penutup video.`;
+    else info.textContent = 'Foto diambil otomatis dari link berita.';
+  }
+  // Kata kunci foto dari teks: kata penting (utamakan berhuruf kapital), tanpa kata umum yang
+  // menyesatkan pencarian foto (mis. "Pemerintah" cenderung memberi foto pejabat asing)
+  const PHOTO_STOP = /^(yang|dan|di|ke|dari|untuk|pada|dengan|dalam|ini|itu|akan|telah|sudah|oleh|para|bagi|atas|secara|tersebut|adalah|menjadi|juga|karena|antara|hingga|serta|lebih|tidak|bisa|dapat|saat|setelah|sebelum|kata|ujar|menurut|tahun|hari|senin|selasa|rabu|kamis|jumat|sabtu|minggu|pemerintah|pihak|warga|masyarakat|tahap|pertama|kedua|ketiga|baru|resmi|terkait|sejumlah|berbagai|soal|usai|jelang|kini|bakal)$/i;
+  function photoKeywords(t) {
+    // buang juga kata kerja berakhiran -kan/-nya yang jarang berguna sebagai kata kunci foto
+    const w = clean(t).replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter((x) => x.length > 2 && !PHOTO_STOP.test(x) && !/(kan|nya)$/i.test(x));
+    const caps = w.filter((x) => /^\p{Lu}/u.test(x));
+    return (caps.length >= 2 ? caps : w).slice(0, 3).join(' ');
+  }
+  const baseCredit = () => { const a = state.article; return a.site ? `Sumber: ${a.site}${a.date ? ' • ' + fmtDate(a.date, true) : ''}` : ''; };
+  function openPhotoPicker() {
+    const picker = $('photoPicker');
+    if (!window.BKFootage) return;
+    photoUi('pick'); picker.hidden = false;
+    const kw = state.video && state.video.footage && state.video.footage[0] && state.video.footage[0].id;
+    const query = kw || photoKeywords($('headline').value || state.article.title || '');
+    window.BKFootage.openPicker(picker, {
+      query,
+      onPick: (item, el) => {
+        const fromArticle = item.source === 'Artikel';
+        $('credit').value = [baseCredit(), fromArticle ? '' : 'Foto: ' + item.credit].filter(Boolean).join(' • ');
+        state.photo = el; draw();
+        photoUi('picked', fromArticle ? 'artikel' : item.source);
+        picker.hidden = false;
+      }
+    });
   }
   async function setPhoto(url) {
     if (!url) { state.photo = null; draw(); photoUi('fail'); return false; }
@@ -678,6 +734,19 @@ ${body}`;
     const b = e.target.closest('button'); if (!b) return;
     state.fmt = b.dataset.fmt; store.set('fmt', state.fmt);
     document.querySelectorAll('#fmtSeg button').forEach((x) => x.classList.toggle('on', x === b)); draw();
+  });
+  $('photoSeg').addEventListener('click', async (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const m = b.dataset.pm;
+    if (m === 'pick') openPhotoPicker();
+    else if (m === 'upload') { photoUi('upload'); $('photoFile').click(); }
+    else if (m === 'auto') {
+      const url = state.article.image;
+      if (!url) { photoUi('fail'); return; }
+      $('photoInfo').innerHTML = '<span class="spin"></span>Memuat foto dari sumber berita…';
+      const base = baseCredit(); if (base) $('credit').value = base;
+      await setPhoto(url);
+    }
   });
   $('photoFile').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -773,6 +842,9 @@ ${body}`;
     setLogoData(null); $('sLogo').value = ''; setBrandMode('text'); draw();
   });
 
+  // ---------- API untuk video.js ----------
+  window.BK = { state, S, store, status, withCtx, drawCover, fitText, wrap, roundRect, drawBrand, drawKicker, fmtDate, escapeHtml, loadRemoteImage, loadImage, parseJson, clean };
+
   // ---------- Init ----------
   loadSettings();
   document.querySelectorAll('#fmtSeg button').forEach((x) => x.classList.toggle('on', x.dataset.fmt === state.fmt));
@@ -782,5 +854,5 @@ ${body}`;
       draw();
       if (params.get('url')) { $('url').value = params.get('url'); run(); }
     });
-  if (!store.get('sName', null)) setTimeout(() => status('Langkah pertama: buka ⚙ Pengaturan untuk mengisi nama media, logo, warna, dan API key.'), 300);
+  if (!store.get('sName', null) || !window.BKAI.anyReady()) setTimeout(() => status('Langkah pertama: buka ⚙ Pengaturan untuk mengisi nama media dan logo, lalu setel <b>Mesin AI</b>. Paling mudah: Groq (gratis, daftar ±2 menit) atau Puter (tanpa API key). <button type="button" class="linkish" data-open-ai>Atur Mesin AI</button>'), 300);
 })();
