@@ -261,6 +261,69 @@
     }
   }
 
+  // ---------- Analisis video (khusus Gemini: menerima link YouTube publik & file video) ----------
+  const GAPI = 'https://generativelanguage.googleapis.com';
+  const INLINE_MAX = 18 * 1048576; // batas aman permintaan inline (total 20 MB)
+  const readBase64 = (file) => new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(fr.error); fr.readAsDataURL(file);
+  });
+  // File besar: Files API (unggah resumable), lalu tunggu sampai diproses (state ACTIVE)
+  async function uploadGeminiFile(key, file, onStatus) {
+    const mime = file.type || 'video/mp4';
+    const r0 = await fetchT(`${GAPI}/upload/v1beta/files?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'X-Goog-Upload-Protocol': 'resumable', 'X-Goog-Upload-Command': 'start', 'X-Goog-Upload-Header-Content-Length': String(file.size), 'X-Goog-Upload-Header-Content-Type': mime, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: { display_name: (file.name || 'video').slice(0, 100) } })
+    }, 60000);
+    if (!r0.ok) throw await readError(r0);
+    const up = r0.headers.get('x-goog-upload-url');
+    if (!up) throw httpError(502, 'Alamat unggah Gemini tidak diterima');
+    if (onStatus) onStatus(`Mengunggah video (${(file.size / 1048576).toFixed(0)} MB)…`);
+    const r1 = await fetchT(up, { method: 'POST', headers: { 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' }, body: file }, 30 * 60000);
+    if (!r1.ok) throw await readError(r1);
+    let f = (await r1.json()).file;
+    for (let i = 0; f && f.state === 'PROCESSING' && i < 120; i++) {
+      if (onStatus) onStatus('Gemini sedang memproses video…');
+      await new Promise((r) => setTimeout(r, 5000));
+      const r2 = await fetchT(`${GAPI}/v1beta/${f.name}?key=${encodeURIComponent(key)}`, {}, 30000);
+      if (!r2.ok) throw await readError(r2);
+      f = await r2.json();
+    }
+    if (!f || f.state !== 'ACTIVE') throw httpError(502, 'Video gagal diproses Gemini' + (f && f.state ? ` (${f.state})` : ''));
+    return { file_data: { file_uri: f.uri, mime_type: f.mimeType || mime } };
+  }
+  async function analyzeVideo(src, prompt, onStatus) {
+    const key = keyOf('gemini');
+    if (!key) throw Object.assign(new Error('API key belum diisi'), { code: 'nokey' });
+    let media;
+    if (src.youtubeUrl) media = { file_data: { file_uri: src.youtubeUrl } };
+    else if (src.file.size <= INLINE_MAX) { if (onStatus) onStatus('Membaca video…'); media = { inline_data: { mime_type: src.file.type || 'video/mp4', data: await readBase64(src.file) } }; }
+    else media = await uploadGeminiFile(key, src.file, onStatus);
+    const call = async (model) => {
+      if (onStatus) onStatus('Gemini sedang menonton video…');
+      const r = await fetchT(`${GAPI}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [media, { text: prompt }] }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } })
+      }, 5 * 60000);
+      if (!r.ok) throw await readError(r);
+      const j = await r.json();
+      const c = j.candidates && j.candidates[0];
+      const text = ((c && c.content && c.content.parts) || []).map((x) => x.text || '').join('');
+      if (!text) throw httpError(c && c.finishReason === 'SAFETY' ? 451 : 502, 'Jawaban kosong');
+      return text;
+    };
+    const model = modelOf('gemini');
+    try { return await call(model); }
+    catch (e) {
+      if (e.status !== 404) throw e;
+      const alt = await autoPickModel('gemini').catch(() => null);
+      if (!alt || alt === model) throw e;
+      setModel('gemini', alt); renderAll();
+      return call(alt);
+    }
+  }
+
   function friendlyError(id, e) {
     const n = P[id] ? P[id].name : id, s = e && e.status;
     if (e && e.code === 'nokey') return id === 'puter' ? `${n}: akun belum terhubung` : `${n}: API key belum diisi`;
@@ -447,6 +510,6 @@
     }
   });
 
-  window.BKAI = { PROVIDERS, generate, testConnection, detectProvider, friendlyError, openSettings, isReady, render: renderAll, anyReady: () => PROVIDERS.some((p) => !p.noKey && isReady(p.id)) };
+  window.BKAI = { PROVIDERS, generate, analyzeVideo, testConnection, detectProvider, friendlyError, openSettings, isReady, render: renderAll, anyReady: () => PROVIDERS.some((p) => !p.noKey && isReady(p.id)) };
   renderAll();
 })();

@@ -30,12 +30,57 @@
 <main class="wrap">
   <!-- INPUT -->
   <section class="card">
-    <label for="url" class="lbl">Link berita</label>
+    <div class="seg seg-full in-seg" id="inSeg">
+      <button type="button" data-in="link" class="on">🔗 Link / kata kunci</button>
+      <button type="button" data-in="text">📝 Teks berita</button>
+      <button type="button" data-in="video">🎬 Video</button>
+    </div>
+    <div id="vidBox" hidden>
+      <label for="ytUrl" class="lbl">Link YouTube</label>
+      <input id="ytUrl" type="url" placeholder="https://www.youtube.com/watch?v=…  atau  https://youtu.be/…" autocomplete="off">
+      <label for="vidFile" class="lbl">atau unggah video sendiri</label>
+      <input id="vidFile" type="file" accept="video/*">
+      <label class="ft-opt" id="vidAsBgBox" hidden><input type="checkbox" id="vidAsBg" checked> Pakai video ini sebagai latar Video Short</label>
+      <div class="row gap">
+        <input id="vidSource" type="text" placeholder="Sumber/media (opsional), mis. Kanal YouTube Setkab">
+        <button id="btnVid" class="primary" type="button">Analisis video</button>
+      </div>
+      <p class="hint">Video dianalisis oleh <b>Google Gemini</b> (gratis, perlu API key Gemini di <button type="button" class="linkish" data-open-ai="gemini">Mesin AI</button>), lalu dijadikan bahan judul, caption 5W+1H, dan naskah video. Link YouTube harus <b>publik</b>; potongan YouTube tidak dipakai sebagai footage. Unggahan maks. ±1 GB, ±45 menit.</p>
+    </div>
+    <div id="txtBox" hidden>
+      <label for="newsText" class="lbl">Teks berita</label>
+      <textarea id="newsText" rows="9" placeholder="Baris pertama = judul (opsional)&#10;&#10;Tempel isi berita, siaran pers, atau catatan liputan di sini…"></textarea>
+      <div class="row gap">
+        <input id="newsSource" type="text" placeholder="Sumber/media (opsional), mis. Humas Pemkab Bogor">
+        <button id="btnText" class="primary" type="button">Proses teks</button>
+      </div>
+      <p class="hint">Baris pertama yang pendek dipakai sebagai <b>judul</b>, sisanya sebagai <b>isi</b>. Caption, 5W+1H, dan video disusun hanya dari teks ini. Foto dipilih dari galeri atau diunggah.</p>
+    </div>
+    <div id="linkBox">
+    <label for="url" class="lbl">Link berita atau kata kunci <span class="in-mode" id="inMode"></span></label>
     <div class="row">
-      <input id="url" type="url" placeholder="https://www.kompas.com/..." autocomplete="off">
+      <input id="url" type="search" placeholder="https://www.kompas.com/…  atau  3 handphone terbaik saat ini" autocomplete="off" enterkeyhint="go">
       <button id="btnGo" class="primary" type="button">Proses</button>
     </div>
-    <p class="hint">App mengambil judul, foto, dan isi artikel, lalu membuat gambar dan caption. Jika situs memblokir, isi manual di bawah.</p>
+    <div id="kwOpts" class="kw-opts" hidden>
+      <label>Berita dari
+        <select id="kwRange">
+          <option value="7d">7 hari terakhir</option>
+          <option value="30d" selected>30 hari terakhir</option>
+          <option value="1y">1 tahun terakhir</option>
+        </select>
+      </label>
+      <label>Jumlah sumber
+        <select id="kwN">
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+          <option value="6">6</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">Tempel <b>link berita</b> untuk mengolah satu artikel, atau ketik <b>kata kunci</b> agar app mencari berita terkini dari beberapa media lalu merangkumnya (butuh Mesin AI). Jika situs memblokir, pakai mode <b>📝 Teks berita</b>.</p>
+    </div>
+    <div id="srcPanel" class="src-panel" hidden></div>
     <div id="status" class="status" hidden></div>
   </section>
 
@@ -178,6 +223,13 @@
         <div id="vPoints"></div>
         <label class="lbl" for="vOutro">Penutup</label>
         <input id="vOutro" type="text" placeholder="Baca selengkapnya di tautan bio">
+        <label class="lbl" for="vStyle">Gaya</label>
+        <select id="vStyle">
+          <option value="classic">Klasik — gradasi + kotak gelap</option>
+          <option value="panel">Panel bawah — foto di atas, panel warna media</option>
+          <option value="frame">Bingkai — bingkai warna aksen + panel</option>
+          <option value="pop">Teks sorot — gaya caption TikTok/Reels</option>
+        </select>
         <div class="two">
           <div>
             <label class="lbl" for="vDur">Durasi</label>
@@ -197,6 +249,13 @@
           <div><label class="lbl" for="vMusicStart">Mulai dari detik ke-</label><input id="vMusicStart" type="range" min="0" max="60" step="1" value="0"></div>
         </div>
         <div class="row gap" id="vMusicInfo" hidden><span class="muted" id="vMusicName"></span><button type="button" class="ghost small" id="btnVMusicClear">Hapus musik</button></div>
+        <div id="vBgCtl" hidden>
+          <div class="two">
+            <div><label class="lbl" for="vBgStart">Video latar mulai detik ke-</label><input id="vBgStart" type="range" min="0" max="60" step="1" value="0"></div>
+            <div><label class="ft-opt" style="margin-top:28px"><input type="checkbox" id="vBgAudio"> Pakai suara asli video</label></div>
+          </div>
+          <p class="hint" id="vBgInfo"></p>
+        </div>
         <p class="hint">Tanpa musik, video bisu. Untuk jangkauan terbaik, tambahkan sound trending langsung di aplikasi TikTok/Instagram/YouTube.</p>
         <button id="btnVRender" class="primary block" type="button">⬇ Render &amp; unduh video</button>
         <button class="secondary block" type="button" data-share="video" style="margin-top:8px">📤 Bagikan video</button>
@@ -378,6 +437,7 @@
 
     <div id="aiBox"></div>
     <div id="footKeyBox"></div>
+    <div id="jinaBox"></div>
     <div id="wpBox"></div>
     <input id="wpSite" type="hidden" value="">
 
@@ -394,6 +454,8 @@
 <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js" integrity="sha384-wr0AQH9RBAKio/g7bHM5245MBCU5B/b0Y9u42cTxRYQQJXKEijZvWEJKL9JG26hs" crossorigin="anonymous"></script>
 <script src="ai.js"></script>
 <script src="app.js"></script>
+<script src="research.js"></script>
+<script src="videoin.js"></script>
 <script src="footage.js"></script>
 <script src="wp.js"></script>
 <script src="video.js"></script>

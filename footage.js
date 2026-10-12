@@ -1,5 +1,5 @@
 /* Berita Kilat — footage per adegan untuk Video Short.
-   Sumber: foto lain di artikel, Wikimedia Commons, Openverse (tanpa key), dan Pexels (foto + klip video, key gratis).
+   Sumber: foto lain di artikel, Wikimedia Commons, Openverse (tanpa key), dan Pixabay / Pexels (foto stok + klip video, key gratis).
    Semua sumber mengizinkan CORS sehingga bisa digambar ke canvas dan di-encode. */
 (() => {
   'use strict';
@@ -16,11 +16,15 @@
     scenes: {},      // key → item ({main} | {type,url,thumb,credit,source,el})
     results: {},     // key → hasil pencarian terakhir (untuk galeri)
     keywords: [],    // [{id,en}] dari naskah AI (hook, poin 1–6)
-    busy: false, msg: '', open: null
+    busy: false, msg: '', open: null,
+    userVideo: null  // video unggahan pengguna (mode 🎬 Video) → latar semua adegan, diputar bersambung
   };
   let runId = 0;
   const pexelsKey = () => (BK.store.get('pexelsKey', '') || '').trim();
-  const preferVideo = () => !!BK.store.get('fPreferVideo', false) && !!pexelsKey();
+  const pixabayKey = () => (BK.store.get('pixabayKey', '') || '').trim();
+  const hasStock = () => !!(pixabayKey() || pexelsKey());
+  const stockNames = () => [pixabayKey() && 'Pixabay', pexelsKey() && 'Pexels'].filter(Boolean).join(', ');
+  const preferVideo = () => !!BK.store.get('fPreferVideo', false) && hasStock();
 
   // ---------- Pencarian ----------
   async function getJson(url, opts = {}, ms = 15000) {
@@ -72,6 +76,24 @@
         credit: `${(v.user && v.user.name) || 'Pexels'} / Pexels`, source: 'Pexels' };
     }).filter(Boolean);
   }
+  // Pixabay: foto & klip video, CORS terbuka (API dan CDN)
+  async function searchPixabayPhotos(q, n = 12) {
+    const j = await getJson(`https://pixabay.com/api/?key=${encodeURIComponent(pixabayKey())}&q=${encodeURIComponent(q.slice(0, 100))}&image_type=photo&per_page=${Math.max(3, n)}&safesearch=true&min_width=800`);
+    return (j.hits || []).map((h) => ({ type: 'photo', url: h.largeImageURL || h.webformatURL, thumb: h.previewURL || h.webformatURL,
+      w: h.imageWidth, h: h.imageHeight, credit: `${h.user || 'Pixabay'} / Pixabay`, source: 'Pixabay' }));
+  }
+  async function searchPixabayVideos(q, n = 8) {
+    const j = await getJson(`https://pixabay.com/api/videos/?key=${encodeURIComponent(pixabayKey())}&q=${encodeURIComponent(q.slice(0, 100))}&per_page=${Math.max(3, n)}&safesearch=true`);
+    return (j.hits || []).map((h) => {
+      // Ukuran dengan sisi terpendek ±720: cukup tajam, unduhan tidak terlalu besar
+      const files = Object.values(h.videos || {}).filter((f) => f && f.url && Math.min(f.width, f.height) >= 540)
+        .sort((a, b) => Math.abs(Math.min(a.width, a.height) - 720) - Math.abs(Math.min(b.width, b.height) - 720));
+      const f = files[0]; if (!f) return null;
+      const thumb = f.thumbnail || (h.videos.tiny && h.videos.tiny.thumbnail) || '';
+      return { type: 'video', url: f.url, thumb, w: f.width, h: f.height, duration: h.duration,
+        credit: `${h.user || 'Pixabay'} / Pixabay`, source: 'Pixabay' };
+    }).filter((x) => x && x.thumb);
+  }
   const settle = (p) => p.then((x) => x, () => []);
   async function searchAll(kw, opts = {}) {
     const q = (kw && kw.id) || '', en = (kw && kw.en) || q;
@@ -86,14 +108,17 @@
       }
       return [[], []];
     };
-    const [vids, pp, [wm, ov]] = await Promise.all([
+    const pxb = !!pixabayKey();
+    const [vids, pp, xv, xp, [wm, ov]] = await Promise.all([
       key && opts.video ? settle(searchPexelsVideos(en)) : [],
       key ? settle(searchPexelsPhotos(en)) : [],
+      pxb && opts.video ? settle(searchPixabayVideos(en)) : [],
+      pxb ? settle(searchPixabayPhotos(en)) : [],
       q ? free(q) : [[], []]
     ]);
     const seen = new Set(), out = [];
     const base = (u) => { try { return decodeURIComponent((u || '').split('?')[0].split('/').pop() || '').toLowerCase(); } catch { return u; } };
-    [...vids, ...wm, ...ov, ...pp].forEach((it) => { const b = base(it.url); if (!seen.has(b)) { seen.add(b); out.push(it); } });
+    [...xv, ...vids, ...wm, ...ov, ...xp, ...pp].forEach((it) => { const b = base(it.url); if (!seen.has(b)) { seen.add(b); out.push(it); } });
     return out;
   }
 
@@ -106,7 +131,15 @@
       const v = document.createElement('video');
       v.muted = true; v.playsInline = true; v.preload = 'auto'; v.loop = true; v.crossOrigin = 'anonymous';
       const to = setTimeout(() => rej(new Error('timeout')), 30000);
-      v.onloadeddata = () => { clearTimeout(to); v.width = v.videoWidth; v.height = v.videoHeight; res(v); };
+      v.onloadeddata = async () => {
+        clearTimeout(to); v.width = v.videoWidth; v.height = v.videoHeight;
+        // WebM dari perekam browser/HP sering tanpa durasi (Infinity): paksa browser menghitungnya
+        if (!isFinite(v.duration)) {
+          await new Promise((ok) => { const d = () => { if (isFinite(v.duration)) { v.removeEventListener('durationchange', d); ok(); } }; v.addEventListener('durationchange', d); setTimeout(ok, 5000); v.currentTime = 1e101; });
+          v.currentTime = 0;
+        }
+        res(v);
+      };
       v.onerror = () => { clearTimeout(to); rej(new Error('video')); };
       v.src = src;
     });
@@ -134,8 +167,14 @@
   async function autoFill(keywords, article) {
     const my = ++runId;
     st.keywords = Array.isArray(keywords) ? keywords : [];
-    st.scenes = { hook: MAIN, outro: MAIN };
     st.results = {};
+    // Video pengguna diutamakan: jangan ditimpa pencarian otomatis (galeri "Tukar" tetap bisa dipakai)
+    if (st.userVideo) {
+      SCENES.forEach((k) => { st.scenes[k] = st.userVideo; });
+      st.busy = false; st.msg = 'Semua adegan memakai video Anda. Klik "Tukar" untuk mengganti adegan tertentu.';
+      render(); refreshVideo(); return;
+    }
+    st.scenes = { hook: MAIN, outro: MAIN };
     st.busy = true; st.msg = 'Mencari footage untuk tiap adegan…'; render();
     const a = article || BK.state.article || {};
     const pool = (a.images || []).filter((u) => u && u !== a.image).map((u) => ({ type: 'photo', url: u, thumb: thumbOf(u), credit: a.site || 'Artikel', source: 'Artikel' }));
@@ -151,8 +190,12 @@
       st.results[key] = lists[i];
       const cands = [];
       if (video) cands.push(...lists[i].filter((x) => x.type === 'video'));
-      if (pool.length) cands.push(pool.shift());
+      // Mode kata kunci: foto artikel bercampur dari banyak berita, jadi utamakan hasil pencarian
+      // per item (mis. nama produk); mode link: foto lain di artikel lebih relevan
+      const research = a.mode === 'research';
+      if (pool.length && !research) cands.push(pool.shift());
       cands.push(...lists[i].filter((x) => x.type === 'photo'));
+      if (pool.length && research) cands.push(pool.shift());
       tasks.push((async () => {
         for (const c of cands) {
           if (!c || used.has(c.url)) continue;
@@ -179,13 +222,35 @@
     render(); refreshVideo();
   }
 
+  // Video unggahan sebagai latar seluruh Video Short (satu elemen dipakai semua adegan)
+  async function setUserVideo(file, start = 0) {
+    runId++; // batalkan pencarian otomatis yang sedang berjalan
+    const it = { type: 'video', file, source: 'Unggahan', credit: file.name, continuous: true, start: Math.max(0, start || 0) };
+    await loadEl(it);
+    st.userVideo = it; st.open = null; st.busy = false;
+    SCENES.forEach((k) => { st.scenes[k] = it; });
+    st.msg = 'Semua adegan memakai video Anda. Klik "Tukar" untuk mengganti adegan tertentu.';
+    render();
+    if (window.BKVideo && window.BKVideo.onUserVideo) window.BKVideo.onUserVideo(it);
+    refreshVideo();
+    return it;
+  }
+  function clearUserVideo() {
+    if (!st.userVideo) return;
+    const it = st.userVideo; st.userVideo = null;
+    try { it.el.pause(); URL.revokeObjectURL(it.el.src); } catch {}
+    SCENES.forEach((k) => { if (st.scenes[k] === it) st.scenes[k] = MAIN; });
+    if (window.BKVideo && window.BKVideo.onUserVideo) window.BKVideo.onUserVideo(null);
+    render(); refreshVideo();
+  }
+
   // ---------- API untuk video.js ----------
   function mediaFor(key) {
     const it = st.scenes[key];
     if (!it || it.main || !it.el) return null;
-    return { el: it.el, type: it.type };
+    return { el: it.el, type: it.type, continuous: !!it.continuous, start: it.start || 0 };
   }
-  function activeItems() { return SCENES.map((k) => st.scenes[k]).filter((x) => x && !x.main && x.el); }
+  function activeItems() { return [...new Set(SCENES.map((k) => st.scenes[k]).filter((x) => x && !x.main && x.el))]; }
   function sourcesLine() {
     const s = [...new Set(activeItems().filter((x) => x.source !== 'Unggahan').map((x) => x.source === 'Artikel' ? (BK.state.article.site || 'Artikel') : x.source))];
     return s.join(', ');
@@ -224,7 +289,7 @@
       const all = [...pool, ...list];
       html += `<div class="ft-gal" data-key="${key}">
         <div class="row"><input type="text" data-ft="q" value="${esc(q)}" placeholder="Kata kunci, mis. stasiun kereta cepat"><button type="button" class="secondary small" data-ft="search">Cari</button></div>
-        <p class="hint">${st.searching === key ? '<span class="spin"></span>Mencari…' : `${all.length} hasil · Artikel, Wikimedia Commons, Openverse${pexelsKey() ? ', Pexels' : ' (isi API key Pexels di Pengaturan untuk foto stok & klip video)'}`}</p>
+        <p class="hint">${st.searching === key ? '<span class="spin"></span>Mencari…' : `${all.length} hasil · Artikel, Wikimedia Commons, Openverse${hasStock() ? ', ' + stockNames() : ' (isi API key Pixabay di Pengaturan untuk foto stok & klip video)'}`}</p>
         <div class="ft-grid">${all.map((x, i) => `<button type="button" class="ft-cell" data-ft="pick" data-i="${i}" title="${esc(x.credit)}"><img src="${esc(x.thumb)}" alt="" loading="lazy">${x.type === 'video' ? '<span class="ft-play">▶</span>' : ''}<span class="ft-src">${esc(x.source)}</span></button>`).join('')}</div>
       </div>`;
       st.galItems = all;
@@ -234,14 +299,14 @@
   function render() {
     const box = $('footBox'); if (!box) return;
     const shown = window.BKVideo && window.BKVideo.shownPoints ? window.BKVideo.shownPoints() : 6;
-    const has = !!pexelsKey();
+    const has = hasStock();
     box.innerHTML = `<div class="card-h"><h2 style="font-size:15px">Footage per adegan</h2>
         <div class="row" style="gap:8px">
           <button type="button" class="ghost small" data-ft="credits">Salin kredit foto</button>
           <button type="button" class="secondary small" data-ft="auto">↻ Cari ulang otomatis</button>
         </div></div>
       <label class="ft-opt"><input type="checkbox" data-ft="prefer" ${BK.store.get('fPreferVideo', false) ? 'checked' : ''} ${has ? '' : 'disabled'}>
-        Utamakan klip video (Pexels)${has ? '' : ' <span class="muted">— isi API key Pexels di <button type="button" class="linkish" data-ft="settings">Pengaturan</button></span>'}</label>
+        Utamakan klip video (${has ? stockNames() : 'Pixabay'})${has ? '' : ' <span class="muted">— isi API key Pixabay (gratis) di <button type="button" class="linkish" data-ft="settings">Pengaturan</button></span>'}</label>
       <p class="hint">${st.busy ? '<span class="spin"></span>' : ''}${esc(st.msg || 'Footage dicari otomatis setelah naskah video dibuat.')}</p>
       <div class="ft-list">${SCENES.map((k) => rowHtml(k, !/^p\d$/.test(k) || parseInt(k.slice(1), 10) < shown)).join('')}</div>`;
   }
@@ -261,6 +326,11 @@
       const txt = 'Kredit foto:\n' + credits().join('\n');
       try { await navigator.clipboard.writeText(txt); BK.status('Kredit foto tersalin. Tempel di akhir caption.', 'ok'); }
       catch { BK.status(esc(txt).replace(/\n/g, '<br>'), 'ok'); }
+    } else if (act === 'xtest') {
+      BK.store.set('pixabayKey', $('pixKey').value.trim());
+      const msg = $('pixMsg'); msg.textContent = 'Mengetes…'; msg.className = 'ai-msg';
+      try { const r = await searchPixabayPhotos('city', 3); msg.textContent = r.length ? '✓ Terhubung' : '✓ Terhubung (tanpa hasil)'; msg.className = 'ai-msg ok'; render(); }
+      catch (err) { msg.textContent = err.status === 400 || err.status === 401 || err.status === 403 ? 'API key Pixabay salah' : err.status === 429 ? 'Terlalu sering, coba lagi sebentar' : 'Gagal terhubung ke Pixabay'; msg.className = 'ai-msg err'; }
     } else if (act === 'ptest') {
       const msg = $('pexMsg'); msg.textContent = 'Mengetes…';
       try { const r = await searchPexelsPhotos('city', 1); msg.textContent = r.length ? '✓ Terhubung' : '✓ Terhubung (tanpa hasil)'; msg.className = 'ai-msg ok'; }
@@ -272,7 +342,7 @@
     const q = inp ? inp.value.trim() : '';
     st.gq = st.gq || {}; if (q) st.gq[key] = q;
     st.searching = key; render();
-    st.results[key] = await searchAll({ id: q, en: q }, { video: !!pexelsKey() });
+    st.results[key] = await searchAll({ id: q, en: q }, { video: hasStock() });
     st.searching = null; render();
   }
   document.addEventListener('change', (e) => {
@@ -284,6 +354,7 @@
       return;
     }
     if (t.id === 'pexKey') { BK.store.set('pexelsKey', t.value.trim()); render(); }
+    if (t.id === 'pixKey') { BK.store.set('pixabayKey', t.value.trim()); render(); }
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.matches('#footBox [data-ft="q"]')) { e.preventDefault(); doSearch(e.target.closest('[data-key]').dataset.key); }
@@ -295,18 +366,25 @@
     if (im && im.tagName === 'IMG' && im.closest && im.closest('.ft-cell')) im.closest('.ft-cell').style.display = 'none';
   }, true);
 
-  // Pengaturan: API key Pexels
+  // Pengaturan: API key Pixabay (utama) & Pexels (bagi yang sudah punya key)
   function renderKeyBox() {
     const box = $('footKeyBox'); if (!box) return;
     box.innerHTML = `<h3>Sumber footage video</h3>
       <p class="hint">Tanpa pengaturan apa pun, footage dicari dari foto di artikel, Wikimedia Commons, dan Openverse.
-      Tambahkan API key <b>Pexels</b> (gratis) untuk foto stok berkualitas dan <b>klip video</b>.</p>
-      <ol class="ai-steps"><li>Klik <b>Buka halaman API key</b>, lalu daftar/masuk.</li><li>Isi formulir singkat (nama aplikasi bebas, mis. Berita Kilat), lalu klik <b>Generate API Key</b>.</li><li>Salin key lalu tempel di kolom di bawah.</li></ol>
-      <div class="row gap"><a class="ghost small btn-like" href="https://www.pexels.com/api/new/" target="_blank" rel="noopener">Buka halaman API key ↗</a></div>
-      <label class="lbl" for="pexKey">API key Pexels</label>
-      <div class="row"><input id="pexKey" type="password" value="${esc(pexelsKey())}" placeholder="Tempel API key Pexels" autocomplete="off">
-      <button type="button" class="secondary small" data-ft="ptest">Tes</button></div>
-      <p class="hint"><span class="ai-msg" id="pexMsg"></span></p>`;
+      Tambahkan API key <b>Pixabay</b> (gratis, langsung jadi) untuk foto stok berkualitas dan <b>klip video</b>.</p>
+      <ol class="ai-steps"><li>Klik <b>Buka halaman API key</b>, lalu daftar/masuk (bisa dengan Google).</li><li>Setelah masuk, buka lagi halaman itu dan gulir ke bagian <b>Parameters → key</b>: API key Anda tertulis di sana (huruf hijau).</li><li>Salin key lalu tempel di kolom di bawah, klik <b>Tes</b>.</li></ol>
+      <div class="row gap"><a class="ghost small btn-like" href="https://pixabay.com/api/docs/#api_search_images" target="_blank" rel="noopener">Buka halaman API key ↗</a></div>
+      <label class="lbl" for="pixKey">API key Pixabay</label>
+      <div class="row"><input id="pixKey" type="password" value="${esc(pixabayKey())}" placeholder="Tempel API key Pixabay" autocomplete="off">
+      <button type="button" class="secondary small" data-ft="xtest">Tes</button></div>
+      <p class="hint"><span class="ai-msg" id="pixMsg"></span></p>
+      <details class="raw"><summary>Pexels (hanya bila sudah punya key)</summary>
+        <p class="hint">Pendaftaran API key baru Pexels sedang ditutup oleh Pexels. Key lama tetap bisa dipakai bersamaan dengan Pixabay.</p>
+        <label class="lbl" for="pexKey">API key Pexels</label>
+        <div class="row"><input id="pexKey" type="password" value="${esc(pexelsKey())}" placeholder="Tempel API key Pexels" autocomplete="off">
+        <button type="button" class="secondary small" data-ft="ptest">Tes</button></div>
+        <p class="hint"><span class="ai-msg" id="pexMsg"></span></p>
+      </details>`;
   }
 
   // Galeri pemilih foto tunggal (dipakai kartu Gambar): foto artikel + hasil pencarian, tanpa klip video
@@ -326,7 +404,7 @@
       const res = pk.q ? (await searchAll({ id: pk.q, en: pk.q }, { video: false })).filter((x) => x.type === 'photo') : [];
       pk.items = [...art, ...res];
       pk.busy = false;
-      pk.msg = pk.items.length ? `${pk.items.length} foto · Artikel, Wikimedia Commons, Openverse${pexelsKey() ? ', Pexels' : ''}. Klik untuk memakai.` : 'Tidak ada hasil. Coba kata kunci lain.';
+      pk.msg = pk.items.length ? `${pk.items.length} foto · Artikel, Wikimedia Commons, Openverse${hasStock() ? ', ' + stockNames() : ''}. Klik untuk memakai.` : 'Tidak ada hasil. Coba kata kunci lain.';
       draw();
     };
     box.onclick = async (e) => {
@@ -346,7 +424,7 @@
     draw(); search();
   }
 
-  window.BKFootage = { autoFill, mediaFor, sourcesLine, credits, render, setScene, searchAll, activeItems, openPicker, loadEl };
+  window.BKFootage = { autoFill, setUserVideo, clearUserVideo, userVideo: () => st.userVideo, mediaFor, sourcesLine, credits, render, setScene, searchAll, activeItems, openPicker, loadEl };
   st.scenes = { hook: MAIN, outro: MAIN };
   renderKeyBox(); render();
 })();

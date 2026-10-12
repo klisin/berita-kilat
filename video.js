@@ -11,10 +11,14 @@
   const TEXT_W = W - PAD - PAD_R;
   const vcv = $('vcv'), vctx = vcv.getContext('2d');
   const music = { buf: null, name: '' };
-  let player = null;                     // { raf, actx, src }
+  const bg = { it: null, buf: null };    // video latar unggahan (footage) + audio aslinya
+  let player = null;                     // { raf, actx, srcs }
   let busy = false;
   let lastOut = null;                    // hasil render terakhir (dipakai menu Bagikan)
-  const renderKey = () => JSON.stringify([getScript(), dur(), music.name, BK.S().name]);
+  const vStyle = () => $('vStyle').value || 'classic';
+  const renderKey = () => JSON.stringify([getScript(), dur(), vStyle(), music.name, BK.S().name, bg.it && bg.it.credit, bg.it && bg.it.start, bgAudioOn()]);
+  const bgAudioOn = () => !!(bg.it && bg.buf && $('vBgAudio').checked);
+  const hasAudio = () => !!music.buf || bgAudioOn();
 
   const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
   const ease = (t) => 1 - Math.pow(1 - clamp(t), 3);
@@ -128,13 +132,28 @@
       c.restore();
     });
   }
+  // Gaya "Teks sorot": tiap baris diberi blok warna seperti caption TikTok/Reels
+  function boxLines(c, lines, cx, y, size, lh, local, bg, fg, weight, font) {
+    const rowH = size * lh, padX = size * 0.34;
+    c.font = `${weight} ${size}px "${font}"`; c.textBaseline = 'middle'; c.textAlign = 'center';
+    lines.forEach((l, i) => {
+      const p = ease((local - 0.1 - i * 0.09) / 0.4);
+      if (p <= 0) return;
+      const w = c.measureText(l).width + padX * 2, k = 0.86 + 0.14 * p;
+      c.save(); c.globalAlpha *= p; c.translate(cx, y + i * rowH + rowH / 2); c.scale(k, k);
+      c.fillStyle = bg; BK.roundRect(-w / 2, -rowH / 2 + 3, w, rowH - 6, size * 0.2); c.fill();
+      c.fillStyle = fg; c.fillText(l, 0, size * 0.04);
+      c.restore();
+    });
+    c.textAlign = 'left'; c.textBaseline = 'top';
+  }
   // ---------- Latar per adegan (footage) ----------
   const XF = 0.45; // lama crossfade antaradegan (detik)
   const sceneKey = (x) => (x.type === 'point' ? 'p' + x.i : x.type);
   const sceneIndex = (t, sc) => { const i = sc.findIndex((x) => t >= x.t0 && t < x.t1); return i < 0 ? sc.length - 1 : i; };
   function bgMedia(x) {
     const m = window.BKFootage && window.BKFootage.mediaFor(sceneKey(x));
-    if (m) return { el: m.el, type: m.type, main: false };
+    if (m) return { ...m, main: false };
     return BK.state.photo ? { el: BK.state.photo, type: 'photo', main: true } : null;
   }
   // Ken Burns berbeda tiap adegan: zoom masuk/keluar dan arah geser bergantian
@@ -144,6 +163,8 @@
       const g = c.createLinearGradient(0, 0, W * (0.6 + 0.4 * t / D), H); g.addColorStop(0, s.panel); g.addColorStop(1, s.accent);
       c.fillStyle = g; c.fillRect(0, 0, W, H); return;
     }
+    // Latar video bersambung: gerak kamera sangat halus agar tidak terasa goyang
+    if (m.continuous) { const z = 1.02 + 0.02 * t / D; BK.drawCover(m.el, (W - W * z) / 2, (H - H * z) / 2, W * z, H * z, 0.5); return; }
     const z = idx % 2 === 0 ? 1.06 + 0.12 * k : 1.18 - 0.12 * k;
     const dir = idx % 3 === 0 ? 1 : idx % 3 === 1 ? -1 : 0;
     const pw = W * z, ph = H * z;
@@ -164,6 +185,8 @@
       v.currentTime = target;
     });
   }
+  // Waktu klip: bersambung (global) untuk video pengguna, lokal per adegan untuk footage lain
+  const clipTime = (m, x, t) => (m.continuous ? m.start + t : Math.max(0, t - x.t0));
   function activeScenes(t, sc) {
     const ci = sceneIndex(t, sc), list = [sc[ci]];
     if (ci > 0 && t - sc[ci].t0 < XF) list.push(sc[ci - 1]);
@@ -172,7 +195,7 @@
   async function prepareFrame(t, sc) {
     for (const x of activeScenes(t, sc)) {
       const m = bgMedia(x);
-      if (m && m.type === 'video') { if (!m.el.paused) m.el.pause(); await seekVideo(m.el, Math.max(0, t - x.t0)); }
+      if (m && m.type === 'video') { if (!m.el.paused) m.el.pause(); await seekVideo(m.el, clipTime(m, x, t)); }
     }
   }
   // Pratinjau & mode cadangan: klip diputar real-time
@@ -181,9 +204,11 @@
     const live = new Set();
     activeScenes(t, sc).forEach((x) => {
       const m = bgMedia(x);
-      if (!m || m.type !== 'video') return;
+      if (!m || m.type !== 'video' || live.has(m.el)) return; // satu elemen bisa dipakai beberapa adegan aktif
       live.add(m.el);
-      if (m.el.paused) { m.el.currentTime = Math.max(0, t - x.t0) % (m.el.duration || 1); m.el.play().catch(() => {}); }
+      const target = clipTime(m, x, t) % (m.el.duration || 1);
+      if (m.el.paused) { m.el.currentTime = target; m.el.play().catch(() => {}); }
+      else if (m.continuous && Math.abs(m.el.currentTime - target) > 0.35) m.el.currentTime = target; // jaga sinkron dengan suara
     });
     allVideos().forEach((v) => { if (!live.has(v) && !v.paused) v.pause(); });
   }
@@ -197,16 +222,36 @@
       c.clearRect(0, 0, W, H);
       // Latar adegan aktif + crossfade dari adegan sebelumnya
       const ci = sceneIndex(t, sc), lt = t - sc[ci].t0;
-      if (ci > 0 && lt < XF) { drawBg(c, sc[ci - 1], ci - 1, t, D, s); c.globalAlpha = ease(lt / XF); }
-      drawBg(c, sc[ci], ci, t, D, s);
+      const vs = vStyle(), panelled = vs === 'panel' || vs === 'frame';
+      const FR = vs === 'frame' ? 30 : 0;          // tebal bingkai
+      const PH = Math.round(H * 0.56);             // batas bawah foto pada gaya panel/bingkai
+      // Gaya panel/bingkai: geser latar ke atas agar bagian tengah foto jatuh di area foto (penutup tetap penuh)
+      const bgAt = (i) => {
+        const dy = panelled && sc[i].type !== 'outro' ? -(H - PH) / 2 : 0;
+        c.save(); c.translate(0, dy); drawBg(c, sc[i], i, t, D, s); c.restore();
+      };
+      if (ci > 0 && lt < XF) { bgAt(ci - 1); c.globalAlpha = ease(lt / XF); }
+      bgAt(ci);
       c.globalAlpha = 1;
-      // Gradasi agar teks terbaca
-      let g = c.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(0.2, 'rgba(0,0,0,.08)');
-      g.addColorStop(0.45, 'rgba(0,0,0,.25)'); g.addColorStop(0.8, 'rgba(0,0,0,.82)'); g.addColorStop(1, 'rgba(0,0,0,.92)');
-      c.fillStyle = g; c.fillRect(0, 0, W, H);
-
       const cur = sc.find((x) => t >= x.t0 && t < x.t1) || sc[sc.length - 1];
+      const BOTTOM = H - 330;                      // di bawah ini tertutup keterangan TikTok/Reels
+      // Gradasi agar teks terbaca (berbeda per gaya)
+      let g = c.createLinearGradient(0, 0, 0, H);
+      if (vs === 'classic') {
+        g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(0.2, 'rgba(0,0,0,.08)');
+        g.addColorStop(0.45, 'rgba(0,0,0,.25)'); g.addColorStop(0.8, 'rgba(0,0,0,.82)'); g.addColorStop(1, 'rgba(0,0,0,.92)');
+      } else if (vs === 'pop') {
+        g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(0.18, 'rgba(0,0,0,.12)');
+        g.addColorStop(0.7, 'rgba(0,0,0,.18)'); g.addColorStop(1, 'rgba(0,0,0,.6)');
+      } else {
+        g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(0.16, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      }
+      c.fillStyle = g; c.fillRect(0, 0, W, H);
+      if (panelled && cur.type !== 'outro') {
+        c.fillStyle = s.panel; c.fillRect(0, PH, W, H - PH);
+        c.fillStyle = s.accent; c.fillRect(0, PH, W, 12);
+      }
+
       const local = t - cur.t0, len = cur.t1 - cur.t0;
       const last = cur === sc[sc.length - 1];
       const fade = last ? 1 : 1 - clamp((local - (len - 0.28)) / 0.28);
@@ -223,7 +268,34 @@
       const brand = brandImage();
       if (cur.type !== 'outro') c.drawImage(brand, PAD - (brand.pad || 0), 190 - (brand.pad || 0));
 
-      if (cur.type === 'hook') {
+      if (cur.type === 'hook' && panelled) {
+        c.globalAlpha = fade; c.shadowBlur = 0;
+        const kicker = $('kicker').value.trim(), top = PH + 74, kh = kicker ? 96 : 0;
+        if (kicker) {
+          const p = ease(local / 0.35);
+          c.save(); c.globalAlpha *= p; c.translate(PAD - (1 - p) * 60, top); c.scale(1.3, 1.3);
+          BK.drawKicker(kicker, 0, 0, s); c.restore();
+        }
+        const f = fit(c, script.hook, font, 900, TEXT_W, BOTTOM - top - kh - 40, 92, 44, lh);
+        const y = top + kh, blockH = f.lines.length * f.size * lh;
+        c.fillStyle = '#fff'; c.font = `900 ${f.size}px "${font}"`; c.textBaseline = 'top';
+        textLines(c, f.lines, PAD, y, f.size, lh, local);
+        const bp = ease((local - 0.5) / 0.5);
+        c.fillStyle = s.accent; c.fillRect(PAD, y + blockH + 26, 160 * bp, 10);
+      } else if (cur.type === 'hook' && vs === 'pop') {
+        c.globalAlpha = fade; c.shadowBlur = 0;
+        const cx = (PAD + W - PAD_R) / 2, rlh = 1.24;
+        const f = fit(c, script.hook, font, 900, TEXT_W - 80, H * 0.34, 92, 46, rlh);
+        const blockH = f.lines.length * f.size * rlh, y = H * 0.5 - blockH / 2;
+        const kicker = $('kicker').value.trim();
+        if (kicker) {
+          const p = ease(local / 0.35);
+          c.font = '800 26px Inter'; const kw = (c.measureText(kicker.toUpperCase()).width + 36) * 1.3;
+          c.save(); c.globalAlpha *= p; c.translate(cx - kw / 2, y - 96 - (1 - p) * 30); c.scale(1.3, 1.3);
+          BK.drawKicker(kicker, 0, 0, s); c.restore();
+        }
+        boxLines(c, f.lines, cx, y, f.size, rlh, local, s.accent, '#fff', 900, font);
+      } else if (cur.type === 'hook') {
         c.globalAlpha = fade;
         const f = fit(c, script.hook, font, 900, TEXT_W, H * 0.3, 104, 52, lh);
         const blockH = f.lines.length * f.size * lh;
@@ -238,6 +310,23 @@
         textLines(c, f.lines, PAD, y, f.size, lh, local);
         const bp = ease((local - 0.5) / 0.5);
         c.shadowBlur = 0; c.fillStyle = s.accent; c.fillRect(PAD, y + blockH + 30, 160 * bp, 10);
+      } else if (cur.type === 'point' && panelled) {
+        const text = script.poin[cur.i], blh = 1.28;
+        const inP = ease(local / 0.4);
+        c.globalAlpha = fade; c.shadowBlur = 0;
+        const top = PH + 70;
+        const f = fit(c, text, font, 700, TEXT_W - 34, BOTTOM - top, 60, 34, blh);
+        const blockH = f.lines.length * f.size * blh;
+        c.fillStyle = s.accent; c.fillRect(PAD, top + 4, 10, blockH * inP);
+        c.fillStyle = '#fff'; c.font = `700 ${f.size}px "${font}"`; c.textBaseline = 'top';
+        textLines(c, f.lines, PAD + 36, top, f.size, blh, local);
+      } else if (cur.type === 'point' && vs === 'pop') {
+        const text = script.poin[cur.i], rlh = 1.26;
+        c.globalAlpha = fade; c.shadowBlur = 0;
+        const cx = (PAD + W - PAD_R) / 2;
+        const f = fit(c, text, font, 800, TEXT_W - 90, H * 0.4, 58, 34, rlh);
+        const blockH = f.lines.length * f.size * rlh;
+        boxLines(c, f.lines, cx, Math.min(H * 0.6 - blockH / 2, BOTTOM - blockH), f.size, rlh, local, 'rgba(255,255,255,.96)', '#111', 800, font);
       } else if (cur.type === 'point') {
         // Kalimat penjelasan utuh (SPOK) di panel gelap, huruf lebih kecil agar muat lengkap
         const text = script.poin[cur.i];
@@ -285,6 +374,10 @@
         }
         c.textAlign = 'left';
       }
+      if (FR) {
+        c.globalAlpha = 1; c.shadowBlur = 0; c.fillStyle = s.accent;
+        c.beginPath(); c.rect(0, 0, W, H); c.rect(FR, FR, W - FR * 2, H - FR * 2); c.fill('evenodd');
+      }
       c.restore();
     });
   }
@@ -311,15 +404,15 @@
   function stopPreview() {
     if (!player) return;
     cancelAnimationFrame(player.raf);
-    try { player.src && player.src.stop(); } catch {}
+    (player.srcs || []).forEach((x) => { try { x.stop(); } catch {} });
     try { player.actx && player.actx.close(); } catch {}
     pauseAll();
     player = null; $('btnVPlay').textContent = '▶ Putar pratinjau';
     renderStill();
   }
-  function musicGraph(actx, D, startAt) {
+  function musicGraph(actx, D, startAt, duck = 1) {
     const src = actx.createBufferSource(); src.buffer = music.buf;
-    const gain = actx.createGain(), vol = parseFloat($('vVol').value) || 0.7;
+    const gain = actx.createGain(), vol = (parseFloat($('vVol').value) || 0.7) * duck;
     gain.gain.setValueAtTime(vol, startAt); gain.gain.setValueAtTime(vol, startAt + Math.max(0, D - 1)); gain.gain.linearRampToValueAtTime(0, startAt + D);
     src.connect(gain);
     const off = Math.min(parseFloat($('vMusicStart').value) || 0, Math.max(0, music.buf.duration - 1));
@@ -328,14 +421,29 @@
     src.start(startAt, off, D);
     return { src, gain };
   }
+  // Musik + suara asli video latar. Bila keduanya ada, musik diturunkan agar suara asli terdengar.
+  function audioGraph(actx, D, startAt) {
+    const out = actx.createGain(), srcs = [];
+    const useBg = bgAudioOn();
+    if (music.buf) { const m = musicGraph(actx, D, startAt, useBg ? 0.3 : 1); m.gain.connect(out); srcs.push(m.src); }
+    if (useBg) {
+      const src = actx.createBufferSource(); src.buffer = bg.buf;
+      const g = actx.createGain();
+      g.gain.setValueAtTime(1, startAt); g.gain.setValueAtTime(1, startAt + Math.max(0, D - 0.6)); g.gain.linearRampToValueAtTime(0, startAt + D);
+      const off = (bg.it.start || 0) % bg.buf.duration;
+      if (bg.buf.duration - off < D) { src.loop = true; src.loopStart = 0; src.loopEnd = bg.buf.duration; } // berulang seperti videonya
+      src.connect(g); g.connect(out); src.start(startAt, off, D); srcs.push(src);
+    }
+    return { out, srcs };
+  }
   function playPreview() {
     if (player) return stopPreview();
     const D = dur(), script = getScript(), sc = timeline(D, script.poin);
-    player = { raf: 0, actx: null, src: null };
-    if (music.buf) {
+    player = { raf: 0, actx: null, srcs: [] };
+    if (hasAudio()) {
       try {
-        const actx = new AudioContext(); const m = musicGraph(actx, D, actx.currentTime + 0.05);
-        m.gain.connect(actx.destination); player.actx = actx; player.src = m.src;
+        const actx = new AudioContext(); const a = audioGraph(actx, D, actx.currentTime + 0.05);
+        a.out.connect(actx.destination); player.actx = actx; player.srcs = a.srcs;
       } catch {}
     }
     $('btnVPlay').textContent = '■ Hentikan';
@@ -351,9 +459,9 @@
   }
 
   // ---------- Audio untuk ekspor ----------
-  async function renderMusic(D) {
+  async function renderAudio(D) {
     const oac = new OfflineAudioContext(2, Math.ceil(D * SR), SR);
-    const m = musicGraph(oac, D, 0); m.gain.connect(oac.destination);
+    const a = audioGraph(oac, D, 0); a.out.connect(oac.destination);
     return oac.startRendering();
   }
   async function pickAudioCodec() {
@@ -377,7 +485,7 @@
 
   // ---------- Ekspor: WebCodecs → MP4 ----------
   async function exportWebCodecs(vcfg, D, script, sc, onProg) {
-    const acodec = music.buf ? await pickAudioCodec() : null;
+    const acodec = hasAudio() ? await pickAudioCodec() : null;
     const muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
       video: { codec: 'avc', width: W, height: H, frameRate: FPS },
@@ -404,7 +512,7 @@
     await enc.flush(); enc.close();
     if (err) throw err;
     if (acodec) {
-      const ab = await renderMusic(D);
+      const ab = await renderAudio(D);
       const aenc = new AudioEncoder({ output: (ch, meta) => muxer.addAudioChunk(ch, meta), error: (e) => { err = e; } });
       aenc.configure(acodec.cfg);
       const L = ab.getChannelData(0), R = ab.getChannelData(1), step = 1024;
@@ -430,9 +538,9 @@
     renderFrame(r2, 0, D, sc, script);
     const stream = rc.captureStream(FPS);
     let actx = null;
-    if (music.buf) {
+    if (hasAudio()) {
       actx = new AudioContext(); const dest = actx.createMediaStreamDestination();
-      const m = musicGraph(actx, D, actx.currentTime + 0.05); m.gain.connect(dest);
+      const a = audioGraph(actx, D, actx.currentTime + 0.05); a.out.connect(dest);
       dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
     }
     const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
@@ -474,7 +582,7 @@
       const vcfg = opts.forceRecorder ? null : await pickVideoConfig();
       const out = vcfg ? await exportWebCodecs(vcfg, D, script, sc, onProg) : await exportRecorder(D, script, sc, onProg);
       lastOut = { ...out, key: renderKey() };
-      info.textContent = `${out.label} · 1080×1920 · ${D} detik · ${(out.blob.size / 1048576).toFixed(1)} MB${music.buf ? ' · dengan musik' : ' · tanpa suara'}`;
+      info.textContent = `${out.label} · 1080×1920 · ${D} detik · ${(out.blob.size / 1048576).toFixed(1)} MB${music.buf && bgAudioOn() ? ' · musik + suara asli' : music.buf ? ' · dengan musik' : bgAudioOn() ? ' · suara asli video' : ' · tanpa suara'}`;
       if (!opts.noDownload) {
         const a = document.createElement('a'); a.href = URL.createObjectURL(out.blob); a.download = slug() + '.' + out.ext; a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -514,14 +622,46 @@
     $('vMusicCtl').hidden = true; $('vMusicInfo').hidden = true;
   });
 
+  // ---------- Video latar unggahan (dari mode 🎬 Video) ----------
+  async function onUserVideo(it) {
+    stopPreview();
+    bg.it = it; bg.buf = null;
+    $('vBgCtl').hidden = !it;
+    if (!it) { refresh(); return; }
+    const d = Math.floor(it.el.duration || 0), cb = $('vBgAudio'), info = $('vBgInfo');
+    const head = `🎬 ${it.credit} (${d} dtk) dipakai sebagai latar semua adegan.`;
+    $('vBgStart').max = String(Math.max(0, d - 3));
+    $('vBgStart').value = String(Math.min(it.start || 0, Math.max(0, d - 3)));
+    it.start = parseFloat($('vBgStart').value) || 0;
+    info.textContent = head + ' Membaca suara…';
+    try {
+      if (it.file.size > 300 * 1048576) throw new Error('terlalu besar');
+      const actx = new AudioContext();
+      const buf = await actx.decodeAudioData(await it.file.arrayBuffer());
+      actx.close();
+      if (bg.it !== it) return;
+      bg.buf = buf; cb.disabled = false;
+      info.textContent = head + ' Centang "Pakai suara asli video" untuk menyertakan suaranya.';
+    } catch {
+      if (bg.it !== it) return;
+      cb.checked = false; cb.disabled = true;
+      info.textContent = head + ' Suara asli tidak bisa dibaca (video tanpa suara atau lebih dari 300 MB).';
+    }
+    refresh();
+  }
+  $('vBgStart').addEventListener('input', () => { if (bg.it) { bg.it.start = parseFloat($('vBgStart').value) || 0; refresh(); } });
+  $('vBgAudio').addEventListener('change', refresh);
+
   // ---------- Event ----------
   $('btnVPlay').addEventListener('click', playPreview);
   $('btnVRender').addEventListener('click', () => render());
   $('videoCard').addEventListener('input', (e) => { if (!/vVol|vMusic/.test(e.target.id) && !e.target.closest('#footBox')) refresh(); });
   $('vDur').addEventListener('change', refresh);
+  $('vStyle').value = BK.store.get('vStyle', 'classic');
+  $('vStyle').addEventListener('change', () => { BK.store.set('vStyle', $('vStyle').value); refresh(); });
 
   // Hasil render terakhir hanya dipakai bila naskah/durasi/musik belum berubah
   const lastOutput = () => (lastOut && lastOut.key === renderKey() ? lastOut : null);
-  window.BKVideo = { setScript, refresh, render, renderFrame, timeline, getScript, shownPoints, lastOutput };
+  window.BKVideo = { setScript, onUserVideo, refresh, render, renderFrame, timeline, getScript, shownPoints, lastOutput };
   setScript(BK.state.video || null);
 })();

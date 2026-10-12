@@ -184,7 +184,7 @@
     const body = (a.body || a.description || '').slice(0, 12000);
     return `Anda adalah redaktur senior media daring Indonesia yang menulis dengan gaya Harian Kompas: lugas, akurat, berimbang, kalimat efektif, Bahasa Indonesia baku sesuai KBBI/PUEBI, tanpa sensasi dan tanpa emoji.
 
-TUGAS: tulis ulang ARTIKEL SUMBER menjadi artikel berita orisinal untuk dipublikasikan di situs ${siteName}.
+TUGAS: tulis ulang ARTIKEL SUMBER menjadi artikel berita orisinal untuk dipublikasikan di situs ${siteName}.${a.mode === 'research' ? ` Bahan berasal dari BEBERAPA berita terkini tentang "${a.query}": rangkum menjadi satu artikel utuh yang menjawab topik tersebut (bila berupa daftar/rekomendasi, sajikan daftar bernomor dengan subjudul <h2> per item), sebutkan atribusi per media di dalam teks (mis. "dilansir Radar Pati"), dan tegaskan bahwa informasi berlaku per tanggal hari ini.` : ''}
 
 ATURAN PENULISAN
 1. Struktur piramida terbalik. Paragraf pertama (lead, maks. 40 kata) menjawab apa, siapa, kapan, dan di mana, diawali dateline "NAMA KOTA, ${dl} —" (kota tempat peristiwa; jika tidak jelas pakai JAKARTA).
@@ -235,7 +235,12 @@ ${body}`;
       if (parts.length > 4) { parts.splice(3, 0, ''); body = parts.slice(0, 3).join('</p>') + '</p>\n' + baca + parts.slice(3).join('</p>'); }
       else body += '\n' + baca;
     }
-    if (a.url) {
+    if (a.sources && a.sources.length > 1) {
+      // Mode kata kunci: cantumkan semua berita yang dirangkum
+      const refs = a.sources.map((r) => `<a href="${esc(safeHref(r.url))}" target="_blank" rel="noopener">${esc(r.title)}</a> (${esc(r.site || 'media')})`).join('; ');
+      body += `
+<p><em>Artikel ini disusun dari pemberitaan: ${refs}.</em></p>`;
+    } else if (a.url) {
       const tgl = a.date ? ', ' + BK.fmtDate(a.date) : '';
       body += `\n<p><em>Artikel ini disusun berdasarkan pemberitaan <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a> (${esc(a.site || 'media asal')}${esc(tgl)}).</em></p>`;
     }

@@ -144,20 +144,23 @@
     const t = setTimeout(() => ctl.abort(), ms);
     try { return await fetch(url, { ...opts, signal: ctl.signal }); } finally { clearTimeout(t); }
   }
+  // Semua proxy dicoba bersamaan; yang pertama berhasil dipakai (tidak menunggu satu per satu gagal)
   async function fetchHtml(url) {
-    for (const p of proxies()) {
-      try {
-        const r = await fetchWithTimeout(p(url));
-        if (!r.ok) continue;
-        const txt = await r.text();
-        if (txt && txt.length > 500 && /<html|<meta|<title/i.test(txt)) return txt;
-      } catch {}
-    }
-    return null;
+    const tries = proxies().map(async (p) => {
+      const r = await fetchWithTimeout(p(url), {}, 9000);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const txt = await r.text();
+      if (txt && txt.length > 500 && /<html|<meta|<title/i.test(txt)) return txt;
+      throw new Error('bukan HTML');
+    });
+    try { return await Promise.any(tries); } catch { return null; }
   }
   async function fetchJina(url) {
     try {
-      const r = await fetchWithTimeout('https://r.jina.ai/' + url, { headers: { 'Accept': 'text/plain' } }, 25000);
+      const headers = { 'Accept': 'text/plain' };
+      const key = (store.get('jinaKey', '') || '').trim(); // opsional, mengurangi pembatasan akses anonim
+      if (key) headers.Authorization = 'Bearer ' + key;
+      const r = await fetchWithTimeout('https://r.jina.ai/' + url, { headers }, 25000);
       if (!r.ok) return null;
       return await r.text();
     } catch { return null; }
@@ -531,21 +534,49 @@
 
   // ---------- Caption: prompt ----------
   const LEN = { pendek: '70–90 kata, 2 paragraf', sedang: '130–170 kata, 3–4 paragraf', panjang: '220–270 kata, 4–5 paragraf' };
+  // Mode kata kunci: rangkum beberapa berita terkini menjadi konten (mis. daftar "3 HP terbaik")
+  function buildResearchPrompt(a) {
+    const s = S(), dl = (s.dateline || s.name).toUpperCase();
+    const n = (String(a.query || a.title).match(/\b(\d{1,2})\b/) || [])[1];
+    const today = fmtDate(new Date().toISOString());
+    return `Anda adalah redaktur senior media daring Indonesia yang menulis dengan gaya Harian Kompas: lugas, akurat, berimbang, kalimat efektif, Bahasa Indonesia baku sesuai KBBI/PUEBI, tanpa sensasi dan tanpa emoji.
+
+TUGAS: pembaca mencari "${a.query || a.title}". Susun bahan posting media sosial (${$('platform').value}) yang menjawabnya secara akurat dan terkini, HANYA berdasarkan BAHAN dari beberapa berita di bawah (rangkuman per ${today}).
+
+ATURAN
+1. ${n ? `Sajikan tepat ${n} item.` : 'Bila permintaan berupa daftar/rekomendasi, sajikan 3–5 item; bila berupa pertanyaan atau peristiwa, sajikan informasi terpenting secara ringkas.'} Utamakan yang paling sering atau paling kuat direkomendasikan lintas sumber; jangan ada item ganda.
+2. Setiap item: nama lengkap, 1–2 kalimat keunggulan/informasi utama dengan angka atau spesifikasi PERSIS seperti di bahan, dan nama media sumbernya. Jangan mengarang harga, spesifikasi, tanggal, peringkat, atau klaim yang tidak ada di bahan.
+3. "caption": paragraf pembuka singkat diawali "${dl} —" yang memberi konteks dan menyebut bahwa ini rangkuman per ${today}; lalu daftar bernomor (1., 2., …); lalu baris "Sumber: <nama-nama media>" dan ajakan singkat. Bukan iklan. Panjang mengikuti kebutuhan daftar (sekitar ${LEN[$('length').value]}).
+4. "judul_gambar": maks. 12 kata, informatif (mis. "3 HP Terbaik Saat Ini Menurut Ulasan Media"), tanpa titik di akhir. "kicker": 1–2 kata huruf kapital (mis. GADGET, EKONOMI).
+5. "hashtags": 3–6 tagar relevan tanpa spasi.
+6. "items": [{"nama":"","ringkas":"","sumber":""}] sesuai daftar.
+7. "w5h1": isi singkat bila relevan; bila tidak, tulis "tidak relevan".
+8. "video": "hook" maks. 12 kata; "poin": satu kalimat lengkap pola SPOK (14–24 kata) per item, urut sesuai daftar (maks. 6); "penutup" maks. 8 kata; "footage": item pertama untuk hook (topik umum), lalu SATU per poin berisi {"id": nama item persis (mis. "Samsung Galaxy A16 5G"), "en": nama item atau objeknya dalam bahasa Inggris}.
+
+Balas HANYA dengan JSON valid tanpa teks lain:
+{"judul_gambar":"","kicker":"","w5h1":{"apa":"","siapa":"","kapan":"","di_mana":"","mengapa":"","bagaimana":""},"caption":"","hashtags":[""],"items":[{"nama":"","ringkas":"","sumber":""}],"video":{"hook":"","poin":[""],"penutup":"","footage":[{"id":"","en":""}]}}
+
+BAHAN (beberapa berita terkini)
+${(a.body || '').slice(0, 14000)}`;
+  }
   function buildPrompt(a) {
+    if (a.mode === 'research') return buildResearchPrompt(a);
     const s = S();
     const dl = (s.dateline || s.name).toUpperCase();
     const body = (a.body || a.description || '').slice(0, 9000);
+    const vid = a.mode === 'video'; // bahan dari analisis video (YouTube/unggahan)
+    const src = vid ? 'BAHAN VIDEO' : 'ARTIKEL';
     return `Anda adalah redaktur senior media daring Indonesia yang menulis dengan gaya Harian Kompas: lugas, berimbang, kalimat efektif, Bahasa Indonesia baku sesuai KBBI/PUEBI, tanpa sensasi dan tanpa emoji.
 
-Tugas: dari ARTIKEL di bawah, buat bahan posting media sosial (${$('platform').value}).
+Tugas: dari ${src} di bawah, buat bahan posting media sosial (${$('platform').value}).
 
 ATURAN JURNALISTIK
 1. Gunakan unsur 5W+1H (apa, siapa, kapan, di mana, mengapa, bagaimana) dan struktur piramida terbalik.
 2. Paragraf pertama adalah lead ringkas (maks. 40 kata) yang menjawab apa, siapa, kapan, dan di mana. Awali dengan dateline: "NAMA KOTA, ${dl} —" (kota tempat peristiwa; jika tidak jelas pakai JAKARTA).
 3. Paragraf berikutnya menjelaskan mengapa dan bagaimana, lalu konteks/latar dan—bila ada—satu kutipan langsung dengan atribusi jelas ("kata ...", "ujar ...").
-4. HANYA gunakan fakta yang ada di artikel. Jangan menambah angka, nama, atau klaim. Jika satu unsur 5W+1H tidak tersedia, tulis "tidak disebutkan" pada analisis dan jangan mengarang.
-5. Hari/tanggal ditulis gaya Kompas, mis. "Senin (5/10/2026)". Tanggal terbit artikel: ${a.date || 'tidak diketahui'}.
-6. Panjang caption: ${LEN[$('length').value]}. Tutup dengan baris: "Sumber: ${a.site || 'media asal'}" dan ajakan singkat membaca selengkapnya (tanpa menulis URL).
+4. HANYA gunakan fakta yang ada di ${vid ? 'bahan video' : 'artikel'}. Jangan menambah angka, nama, atau klaim. Jika satu unsur 5W+1H tidak tersedia, tulis "tidak disebutkan" pada analisis dan jangan mengarang.
+5. Hari/tanggal ditulis gaya Kompas, mis. "Senin (5/10/2026)". Tanggal ${vid ? 'video/peristiwa' : 'terbit artikel'}: ${a.date || 'tidak diketahui'}.
+6. Panjang caption: ${LEN[$('length').value]}. Tutup dengan baris: "Sumber: ${a.site || 'media asal'}" dan ajakan singkat ${vid ? (a.url ? 'menonton video lengkapnya' : 'mengikuti akun kami') : 'membaca selengkapnya'} (tanpa menulis URL).
 7. "judul_gambar": judul untuk ditaruh di foto, maks. 12 kata, informatif, aktif, bukan clickbait, tanpa titik di akhir.
 8. "kicker": 1–2 kata rubrik dalam huruf kapital (mis. NASIONAL, EKONOMI, OLAHRAGA, PENDIDIKAN).
 9. "hashtags": 3–6 tagar relevan dalam Bahasa Indonesia, tanpa spasi.
@@ -554,7 +585,7 @@ ATURAN JURNALISTIK
 Balas HANYA dengan JSON valid tanpa teks lain, dengan struktur:
 {"judul_gambar":"","kicker":"","w5h1":{"apa":"","siapa":"","kapan":"","di_mana":"","mengapa":"","bagaimana":""},"caption":"","hashtags":[""],"video":{"hook":"","poin":["","","","","",""],"penutup":"","footage":[{"id":"","en":""}]}}
 
-ARTIKEL
+${src}
 Judul: ${a.title}
 Media: ${a.site}
 Penulis: ${a.author || '-'}
@@ -589,7 +620,8 @@ ${body}`;
   }
   function renderW5h1(w) {
     const el = $('w5h1'); el.innerHTML = '';
-    if (!w) return;
+    // Sembunyikan bila tidak ada unsur yang terisi (mis. konten daftar di mode kata kunci)
+    if (!w || Object.values(w).every((v) => !v || /^tidak (relevan|disebutkan)/i.test(String(v).trim()))) return;
     const L = { apa: 'Apa (What)', siapa: 'Siapa (Who)', kapan: 'Kapan (When)', di_mana: 'Di mana (Where)', mengapa: 'Mengapa (Why)', bagaimana: 'Bagaimana (How)' };
     Object.keys(L).forEach((k) => {
       const d = document.createElement('div');
@@ -705,19 +737,41 @@ ${body}`;
     catch { state.photo = null; draw(); photoUi('fail'); return false; }
   }
 
+  // Input berupa link (http… atau domain tanpa spasi) → mode link; selain itu → mode kata kunci
+  const isLink = (v) => /^https?:\/\//i.test(v) || (!/\s/.test(v) && /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(v));
+  // Pakai satu artikel (dari link atau hasil riset) untuk mengisi gambar, foto, caption, dan video
+  const clearUserVideo = () => { if (window.BKFootage && window.BKFootage.clearUserVideo) window.BKFootage.clearUserVideo(); };
+  async function useArticle(a) {
+    clearUserVideo();
+    state.article = a; fillRaw(a); applyArticleToUi(a); draw();
+    status('<span class="spin"></span>Mengambil foto…');
+    // Coba foto utama, lalu foto lain dari artikel bila gagal
+    const candidates = [a.image, ...(a.images || [])].filter((u, i, arr) => u && arr.indexOf(u) === i).slice(0, 4);
+    let okPhoto = false;
+    for (const u of candidates.length ? candidates : ['']) { okPhoto = await setPhoto(u); if (okPhoto) break; }
+    if (!okPhoto) status('Foto tidak bisa diambil dari sumber — pilih foto lain atau unggah manual. Menulis caption…', 'err');
+    else status('<span class="spin"></span>Menulis caption…');
+    await makeCaption(true);
+    if (!okPhoto) status('Caption selesai, tetapi foto perlu dipilih atau diunggah manual (kartu Gambar → Pilih foto lain / Unggah).', 'err');
+    return okPhoto;
+  }
+
   async function run() {
     let url = $('url').value.trim();
-    if (!url) { status('Tempel link berita dulu.', 'err'); return; }
+    if (!url) { status('Tempel link berita atau ketik kata kunci dulu.', 'err'); return; }
+    if (!isLink(url) && window.BKResearch) return window.BKResearch.run(url);
+    if (window.BKResearch) window.BKResearch.hide();
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
     const btn = $('btnGo'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Memproses';
     try {
       status('<span class="spin"></span>Mengambil halaman berita…');
       let a = null;
+      const jinaP = fetchJina(url); // dijalankan bersamaan sebagai cadangan
       const html = await fetchHtml(url);
       if (html) a = parseHtml(html, url);
       if (!a || !a.title || a.body.length < 200) {
         status('<span class="spin"></span>Mencoba pembaca cadangan…');
-        const j = await fetchJina(url);
+        const j = await jinaP;
         if (j) {
           const b = parseJina(j, url);
           a = a ? { ...b, ...Object.fromEntries(Object.entries(a).filter(([, v]) => v)), body: (a.body.length > b.body.length ? a.body : b.body) } : b;
@@ -727,17 +781,50 @@ ${body}`;
         status('Halaman tidak bisa diambil (situs memblokir). Buka bagian "Bahan artikel", tempel judul & isi, lalu klik "Pakai bahan ini".', 'err');
         $('artTitle').value = ''; document.querySelector('.raw').open = true; return;
       }
-      state.article = a; fillRaw(a); applyArticleToUi(a); draw();
-      status('<span class="spin"></span>Mengambil foto…');
-      const okPhoto = await setPhoto(a.image);
-      if (!okPhoto) status('Foto tidak bisa diambil dari sumber — silakan unggah foto manual. Menulis caption…', 'err');
-      else status('<span class="spin"></span>Menulis caption 5W+1H…');
-      await makeCaption(true);
-      if (!okPhoto) status('Caption selesai, tetapi foto perlu diunggah manual (kotak "Unggah foto manual" di bawah gambar).', 'err');
+      await useArticle(a);
     } catch (e) {
       status('Terjadi kesalahan: ' + escapeHtml(e.message), 'err');
     } finally { btn.disabled = false; btn.textContent = 'Proses'; }
   }
+
+  // Mode teks: baris pertama yang pendek (tanpa titik di akhir) = judul, sisanya = isi
+  function articleFromText(text, source) {
+    const lines = text.replace(/\r/g, '').split('\n');
+    const first = (lines.find((l) => l.trim()) || '').trim();
+    const rest = text.slice(text.indexOf(first) + first.length).trim();
+    const hasTitle = rest.length > 0 && first.length <= 160 && !/[.!?]["”']?$/.test(first);
+    const body = hasTitle ? rest : text.trim();
+    const title = hasTitle ? first : (body.match(/^[^.!?\n]+/) || [''])[0].split(/\s+/).slice(0, 14).join(' ');
+    return {
+      url: '', title, site: source || S().name || 'redaksi', date: '', image: '', images: [],
+      section: '', body, description: body.split(/\n{2,}/)[0] || ''
+    };
+  }
+  async function runText() {
+    const text = $('newsText').value.trim();
+    if (text.length < 80) { status('Tempel teks berita minimal beberapa kalimat (≥ 80 karakter).', 'err'); return; }
+    if (window.BKResearch) window.BKResearch.hide();
+    const btn = $('btnText'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Memproses';
+    try {
+      const a = articleFromText(text, $('newsSource').value.trim());
+      clearUserVideo();
+      state.article = a; fillRaw(a); applyArticleToUi(a);
+      state.photo = null; draw();
+      status('<span class="spin"></span>Menulis caption…');
+      await makeCaption(true);
+      openPhotoPicker(); // teks tidak membawa foto → langsung tampilkan galeri
+    } catch (e) {
+      status('Terjadi kesalahan: ' + escapeHtml(e.message), 'err');
+    } finally { btn.disabled = false; btn.textContent = 'Proses teks'; }
+  }
+  function setInMode(m) {
+    store.set('inMode', m);
+    document.querySelectorAll('#inSeg button').forEach((b) => b.classList.toggle('on', b.dataset.in === m));
+    $('linkBox').hidden = m !== 'link'; $('txtBox').hidden = m !== 'text'; $('vidBox').hidden = m !== 'video';
+  }
+  setInMode(['link', 'text', 'video'].includes(store.get('inMode')) ? store.get('inMode') : 'link');
+  $('inSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setInMode(b.dataset.in); });
+  $('btnText').addEventListener('click', runText);
 
   // ---------- Event ----------
   $('btnGo').addEventListener('click', run);
@@ -859,7 +946,7 @@ ${body}`;
   });
 
   // ---------- API untuk video.js ----------
-  window.BK = { state, S, store, status, withCtx, drawCover, fitText, wrap, roundRect, drawBrand, drawKicker, fmtDate, escapeHtml, loadRemoteImage, loadImage, parseJson, clean, slug, thumb };
+  window.BK = { state, S, store, status, withCtx, drawCover, fitText, wrap, roundRect, drawBrand, drawKicker, fmtDate, escapeHtml, loadRemoteImage, loadImage, parseJson, clean, slug, thumb, parseJina, useArticle, isLink, draw, makeCaption, setInMode, applyArticleToUi, fillRaw, openPhotoPicker, photoUi };
 
   // ---------- Init ----------
   loadSettings();
@@ -868,7 +955,9 @@ ${body}`;
   (document.fonts ? Promise.all([document.fonts.load('900 60px Inter'), document.fonts.load('900 60px Merriweather'), document.fonts.load('700 20px Inter')]) : Promise.resolve())
     .catch(() => {}).then(() => {
       draw();
-      if (params.get('url')) { $('url').value = params.get('url'); run(); }
+      // ?url=LINK atau ?q=KATA+KUNCI langsung diproses
+      const first = params.get('url') || params.get('q');
+      if (first) { setInMode('link'); $('url').value = first; run(); }
     });
   if (!store.get('sName', null) || !window.BKAI.anyReady()) setTimeout(() => status('Langkah pertama: buka ⚙ Pengaturan untuk mengisi nama media dan logo, lalu setel <b>Mesin AI</b>. Paling mudah: Groq (gratis, daftar ±2 menit) atau Puter (tanpa API key). <button type="button" class="linkish" data-open-ai>Atur Mesin AI</button>'), 300);
 })();
