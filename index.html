@@ -361,7 +361,7 @@
     <p class="hint">Tersimpan hanya di browser ini. API key tidak pernah masuk ke repo GitHub.</p>
 
     <h3>Preset akun media</h3>
-    <p class="hint">Simpan identitas media (nama, handle, logo, warna, efek logo, gaya gambar) sebagai preset, mis. "Kalawaca.com" dan "Akun pribadi". Berpindah akun cukup pilih presetnya. API key tidak ikut disimpan di preset.</p>
+    <p class="hint">Simpan identitas media (nama, handle, logo, warna, efek logo, gaya gambar &amp; video) sebagai preset, mis. "Kalawaca.com" dan "Akun pribadi". Berpindah akun cukup pilih presetnya. <b>Ekspor</b> menyimpan semua preset + pengaturan yang sedang aktif ke satu file; API key hanya ikut bila dicentang (bisa dikunci kata sandi).</p>
     <div class="row gap">
       <select id="presetSel"></select>
       <button type="button" class="ghost small" id="btnPresetDel">Hapus</button>
@@ -373,6 +373,7 @@
       <label class="ghost small btn-like" for="presetImport">⬆ Impor</label>
       <input type="file" id="presetImport" accept=".json,application/json" hidden>
     </div>
+    <label class="ft-opt"><input type="checkbox" id="presetWithKeys"> Ekspor juga API key &amp; koneksi (Mesin AI, Pixabay/Pexels, Jina, WordPress)</label>
     <p class="hint" id="presetMsg"></p>
 
     <h3>Identitas media</h3>

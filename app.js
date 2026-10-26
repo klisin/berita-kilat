@@ -23,9 +23,12 @@
   // ---------- Pengaturan ----------
   const FX_IDS = ['sLogoFx', 'sLogoFxAmt', 'sLogoContrast', 'sLogoBright'];
   const settingIds = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'sProxy', 'wpSite'];
-  const optIds = ['engine', 'length', 'platform', 'style'];
+  const optIds = ['engine', 'length', 'platform', 'style', 'vStyle', 'vFontScale'];
   // Isi preset akun media (API key sengaja tidak ikut)
-  const PRESET_IDS = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'style', 'platform', 'wpSite'];
+  const PRESET_IDS = ['sName', 'sHandle', 'sAccent', 'sPanel', 'sFont', 'sDateline', 'sBrandMode', 'sLogoScale', ...FX_IDS, 'style', 'vStyle', 'vFontScale', 'platform', 'wpSite'];
+  // Data rahasia yang boleh ikut ekspor bila dicentang (daftar tetap: impor tidak bisa menulis kunci lain)
+  const SECRET_KEYS = ['aiKeys', 'aiModels', 'engine', 'jinaKey', 'pixabayKey', 'pexelsKey', 'fPreferVideo', 'wpSites', 'wpSite'];
+  const MERGE_KEYS = ['aiKeys', 'aiModels', 'wpSites']; // objek: digabung dengan yang sudah ada, bukan ditimpa
   function loadSettings() {
     settingIds.concat(optIds).forEach((id) => { const v = store.get(id, null); if (v !== null) $(id).value = v; });
     const logo = store.get('logo', null);
@@ -77,6 +80,7 @@
     await setLogoData(p.logo || null);
     setBrandMode($('sBrandMode').value);
     store.set('activePreset', name); saveSettings(); renderPresets(); draw();
+    if (window.BKVideo) window.BKVideo.refresh();
     if (window.BKWP) window.BKWP.refresh(); // tiap preset bisa terhubung ke website berbeda
     presetMsg(`Preset "${name}" dipakai.`);
     status(`Akun media: <b>${escapeHtml(name)}</b>`, 'ok');
@@ -907,25 +911,82 @@ ${body}`;
     if (store.get('activePreset', '') === name) store.set('activePreset', '');
     renderPresets(); presetMsg(`Preset "${name}" dihapus.`);
   });
-  $('btnPresetExport').addEventListener('click', () => {
-    const all = getPresets();
-    if (!Object.keys(all).length) { presetMsg('Belum ada preset untuk diekspor.', true); return; }
-    const blob = new Blob([JSON.stringify({ app: 'berita-kilat', version: 1, presets: all }, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'berita-kilat-preset.json'; a.click();
+  // ---------- Ekspor/impor: preset + pengaturan aktif (+ API key opsional, bisa dikunci kata sandi) ----------
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const unb64 = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+  async function pwKey(pw, salt) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function encryptJson(obj, pw) {
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pwKey(pw, salt), new TextEncoder().encode(JSON.stringify(obj)));
+    return { alg: 'AES-GCM/PBKDF2-SHA256', salt: b64(salt), iv: b64(iv), data: b64(data) };
+  }
+  async function decryptJson(enc, pw) {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(enc.iv) }, await pwKey(pw, unb64(enc.salt)), unb64(enc.data));
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+  function currentSettings() {
+    saveSettings();
+    const o = {}; settingIds.concat(optIds).forEach((id) => { if (id !== 'engine') o[id] = $(id).value; });
+    o.logo = state.logoData; o.activePreset = store.get('activePreset', '');
+    return o;
+  }
+  $('btnPresetExport').addEventListener('click', async () => {
+    const payload = { app: 'berita-kilat', version: 2, exportedAt: new Date().toISOString(), presets: getPresets(), current: currentSettings() };
+    let note = '';
+    if ($('presetWithKeys').checked) {
+      if (!confirm('File ekspor akan berisi API key dan kata sandi aplikasi WordPress Anda.\nSiapa pun yang memegang file ini bisa memakai akun tersebut. Simpan baik-baik dan jangan dibagikan.\n\nLanjutkan?')) return;
+      const secrets = {}; SECRET_KEYS.forEach((k) => { const v = store.get(k, null); if (v !== null && v !== '') secrets[k] = v; });
+      const pw = prompt('Kunci file dengan kata sandi (disarankan). Kata sandi ini diminta saat impor.\nKosongkan untuk menyimpan tanpa kunci.', '');
+      if (pw === null) return;
+      if (pw) { payload.secretsEnc = await encryptJson(secrets, pw); note = ' API key ikut tersimpan dan dikunci kata sandi.'; }
+      else { payload.secrets = secrets; note = ' API key ikut tersimpan TANPA kunci — simpan file ini dengan aman.'; }
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `berita-kilat-${payload.secrets || payload.secretsEnc ? 'lengkap' : 'preset'}-${new Date().toISOString().slice(0, 10)}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    presetMsg('File preset diunduh. Impor file ini di browser/perangkat lain.');
+    presetMsg(`File diunduh (${Object.keys(payload.presets).length} preset + pengaturan aktif).${note} Impor file ini di browser/perangkat lain.`);
   });
   $('presetImport').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try {
-      const j = JSON.parse(await f.text());
-      const inc = j && j.presets && typeof j.presets === 'object' ? j.presets : null;
-      if (!inc) throw new Error();
-      const all = { ...getPresets(), ...inc };
-      if (!store.set('presets', all)) { presetMsg('Penyimpanan browser penuh, impor gagal.', true); return; }
-      renderPresets(); presetMsg(`${Object.keys(inc).length} preset diimpor.`);
-    } catch { presetMsg('File preset tidak valid.', true); }
     e.target.value = '';
+    let j;
+    try { j = JSON.parse(await f.text()); if (!j || typeof j !== 'object' || (!j.presets && !j.current)) throw new Error(); }
+    catch { presetMsg('File preset tidak valid.', true); return; }
+    let secrets = j.secrets && typeof j.secrets === 'object' ? j.secrets : null;
+    if (j.secretsEnc) {
+      const pw = prompt('File ini berisi API key yang dikunci. Masukkan kata sandinya (kosongkan untuk melewati API key):', '');
+      if (pw) {
+        try { secrets = await decryptJson(j.secretsEnc, pw); }
+        catch { presetMsg('Kata sandi salah — API key tidak diimpor. Coba impor lagi.', true); return; }
+      }
+    }
+    const inc = j.presets && typeof j.presets === 'object' ? j.presets : {};
+    if (!store.set('presets', { ...getPresets(), ...inc })) { presetMsg('Penyimpanan browser penuh, impor gagal.', true); return; }
+    const cur = j.current && typeof j.current === 'object' ? j.current : null;
+    const parts = [`${Object.keys(inc).length} preset`];
+    let reload = false;
+    if (cur && confirm('Terapkan juga pengaturan aktif dari file ini (nama media, logo, warna, gaya gambar & video)? Pengaturan di browser ini akan diganti.')) {
+      settingIds.concat(optIds).forEach((id) => { if (id !== 'engine' && cur[id] != null) store.set(id, String(cur[id])); });
+      if ('logo' in cur) store.set('logo', cur.logo || null);
+      if (cur.activePreset) store.set('activePreset', cur.activePreset);
+      parts.push('pengaturan aktif'); reload = true;
+    }
+    if (secrets && confirm('Impor API key & koneksi dari file ini? Key dengan nama penyedia yang sama akan diganti.')) {
+      SECRET_KEYS.forEach((k) => {
+        if (!(k in secrets)) return;
+        const v = secrets[k];
+        if (MERGE_KEYS.includes(k)) { if (v && typeof v === 'object') store.set(k, { ...(store.get(k, {}) || {}), ...v }); }
+        else if (typeof v === 'string' || typeof v === 'boolean') store.set(k, v);
+      });
+      parts.push('API key & koneksi'); reload = true;
+    }
+    renderPresets();
+    presetMsg(`Diimpor: ${parts.join(', ')}.${reload ? ' Memuat ulang halaman…' : ''}`);
+    if (reload) setTimeout(() => location.reload(), 900);
   });
   $('brandSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
