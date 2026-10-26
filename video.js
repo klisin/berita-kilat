@@ -16,7 +16,11 @@
   let busy = false;
   let lastOut = null;                    // hasil render terakhir (dipakai menu Bagikan)
   const vStyle = () => $('vStyle').value || 'classic';
-  const renderKey = () => JSON.stringify([getScript(), dur(), vStyle(), music.name, BK.S().name, bg.it && bg.it.credit, bg.it && bg.it.start, bgAudioOn()]);
+  // Skala ukuran teks (slider "Ukuran teks"); kicker ikut proporsional (1.3× pada skala bawaan 0.8)
+  const vScale = () => parseFloat($('vFontScale').value) || 0.8;
+  const sz = (n) => Math.round(n * vScale());
+  const kScale = () => 1.3 * vScale() / 0.8;
+  const renderKey = () => JSON.stringify([getScript(), dur(), vStyle(), vScale(), music.name, BK.S().name, bg.it && bg.it.credit, bg.it && bg.it.start, bgAudioOn()]);
   const bgAudioOn = () => !!(bg.it && bg.buf && $('vBgAudio').checked);
   const hasAudio = () => !!music.buf || bgAudioOn();
 
@@ -270,13 +274,13 @@
 
       if (cur.type === 'hook' && panelled) {
         c.globalAlpha = fade; c.shadowBlur = 0;
-        const kicker = $('kicker').value.trim(), top = PH + 74, kh = kicker ? 96 : 0;
+        const ks = kScale(), kicker = $('kicker').value.trim(), top = PH + 74, kh = kicker ? Math.round(46 * ks + 36) : 0;
         if (kicker) {
           const p = ease(local / 0.35);
-          c.save(); c.globalAlpha *= p; c.translate(PAD - (1 - p) * 60, top); c.scale(1.3, 1.3);
+          c.save(); c.globalAlpha *= p; c.translate(PAD - (1 - p) * 60, top); c.scale(ks, ks);
           BK.drawKicker(kicker, 0, 0, s); c.restore();
         }
-        const f = fit(c, script.hook, font, 900, TEXT_W, BOTTOM - top - kh - 40, 92, 44, lh);
+        const f = fit(c, script.hook, font, 900, TEXT_W, BOTTOM - top - kh - 40, sz(92), sz(44), lh);
         const y = top + kh, blockH = f.lines.length * f.size * lh;
         c.fillStyle = '#fff'; c.font = `900 ${f.size}px "${font}"`; c.textBaseline = 'top';
         textLines(c, f.lines, PAD, y, f.size, lh, local);
@@ -285,25 +289,27 @@
       } else if (cur.type === 'hook' && vs === 'pop') {
         c.globalAlpha = fade; c.shadowBlur = 0;
         const cx = (PAD + W - PAD_R) / 2, rlh = 1.24;
-        const f = fit(c, script.hook, font, 900, TEXT_W - 80, H * 0.34, 92, 46, rlh);
+        const f = fit(c, script.hook, font, 900, TEXT_W - 80, H * 0.34, sz(92), sz(46), rlh);
         const blockH = f.lines.length * f.size * rlh, y = H * 0.5 - blockH / 2;
         const kicker = $('kicker').value.trim();
         if (kicker) {
           const p = ease(local / 0.35);
-          c.font = '800 26px Inter'; const kw = (c.measureText(kicker.toUpperCase()).width + 36) * 1.3;
-          c.save(); c.globalAlpha *= p; c.translate(cx - kw / 2, y - 96 - (1 - p) * 30); c.scale(1.3, 1.3);
+          const ks = kScale();
+          c.font = '800 26px Inter'; const kw = (c.measureText(kicker.toUpperCase()).width + 36) * ks;
+          c.save(); c.globalAlpha *= p; c.translate(cx - kw / 2, y - (46 * ks + 36) - (1 - p) * 30); c.scale(ks, ks);
           BK.drawKicker(kicker, 0, 0, s); c.restore();
         }
         boxLines(c, f.lines, cx, y, f.size, rlh, local, s.accent, '#fff', 900, font);
       } else if (cur.type === 'hook') {
         c.globalAlpha = fade;
-        const f = fit(c, script.hook, font, 900, TEXT_W, H * 0.3, 104, 52, lh);
+        const f = fit(c, script.hook, font, 900, TEXT_W, H * 0.3, sz(104), sz(52), lh);
         const blockH = f.lines.length * f.size * lh;
         const y = H * 0.71 - blockH;
         const kicker = $('kicker').value.trim();
         if (kicker) {
           const p = ease(local / 0.35);
-          c.save(); c.globalAlpha *= p; c.shadowBlur = 0; c.translate(PAD - (1 - p) * 60, y - 100); c.scale(1.3, 1.3);
+          const ks = kScale();
+          c.save(); c.globalAlpha *= p; c.shadowBlur = 0; c.translate(PAD - (1 - p) * 60, y - (46 * ks + 40)); c.scale(ks, ks);
           BK.drawKicker(kicker, 0, 0, s); c.restore();
         }
         c.fillStyle = '#fff'; c.font = `900 ${f.size}px "${font}"`; c.textBaseline = 'top';
@@ -315,7 +321,7 @@
         const inP = ease(local / 0.4);
         c.globalAlpha = fade; c.shadowBlur = 0;
         const top = PH + 70;
-        const f = fit(c, text, font, 700, TEXT_W - 34, BOTTOM - top, 60, 34, blh);
+        const f = fit(c, text, font, 700, TEXT_W - 34, BOTTOM - top, sz(60), sz(34), blh);
         const blockH = f.lines.length * f.size * blh;
         c.fillStyle = s.accent; c.fillRect(PAD, top + 4, 10, blockH * inP);
         c.fillStyle = '#fff'; c.font = `700 ${f.size}px "${font}"`; c.textBaseline = 'top';
@@ -324,7 +330,7 @@
         const text = script.poin[cur.i], rlh = 1.26;
         c.globalAlpha = fade; c.shadowBlur = 0;
         const cx = (PAD + W - PAD_R) / 2;
-        const f = fit(c, text, font, 800, TEXT_W - 90, H * 0.4, 58, 34, rlh);
+        const f = fit(c, text, font, 800, TEXT_W - 90, H * 0.4, sz(58), sz(34), rlh);
         const blockH = f.lines.length * f.size * rlh;
         boxLines(c, f.lines, cx, Math.min(H * 0.6 - blockH / 2, BOTTOM - blockH), f.size, rlh, local, 'rgba(255,255,255,.96)', '#111', 800, font);
       } else if (cur.type === 'point') {
@@ -332,7 +338,7 @@
         const text = script.poin[cur.i];
         const inP = ease(local / 0.4), blh = 1.28;
         c.globalAlpha = fade * inP;
-        const f = fit(c, text, font, 700, TEXT_W - 60, H * 0.36, 62, 36, blh);
+        const f = fit(c, text, font, 700, TEXT_W - 60, H * 0.36, sz(62), sz(36), blh);
         const blockH = f.lines.length * f.size * blh;
         const px = 40 - (1 - inP) * 80, pw = W - 40 - 110, top = H * 0.58 - blockH / 2 - 56;
         const ph = blockH + 112;
@@ -353,7 +359,7 @@
         c.globalAlpha = p;
         c.drawImage(big, (W - bw2) / 2, H * 0.36 - bh2 / 2 - (1 - p) * 40, bw2, bh2);
         c.fillStyle = '#fff'; c.textBaseline = 'top';
-        const f = fit(c, script.penutup, 'Inter', 800, W - 200, 220, 64, 36, 1.2);
+        const f = fit(c, script.penutup, 'Inter', 800, W - 200, 220, sz(64), sz(36), 1.2);
         c.font = `800 ${f.size}px Inter`;
         textLines(c, f.lines, W / 2, H * 0.36 + bh2 / 2 + 70, f.size, 1.2, local - 0.2, 'center');
         let y = H * 0.36 + bh2 / 2 + 90 + f.lines.length * f.size * 1.2;
@@ -659,6 +665,8 @@
   $('vDur').addEventListener('change', refresh);
   $('vStyle').value = BK.store.get('vStyle', 'classic');
   $('vStyle').addEventListener('change', () => { BK.store.set('vStyle', $('vStyle').value); refresh(); });
+  $('vFontScale').value = String(BK.store.get('vFontScale', 0.8));
+  $('vFontScale').addEventListener('change', () => BK.store.set('vFontScale', vScale()));
 
   // Hasil render terakhir hanya dipakai bila naskah/durasi/musik belum berubah
   const lastOutput = () => (lastOut && lastOut.key === renderKey() ? lastOut : null);

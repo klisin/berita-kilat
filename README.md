@@ -1,18 +1,21 @@
 # Berita Kilat
 
-Ubah link berita menjadi **gambar judul siap posting** (4:5, 1:1, 9:16) dan **caption jurnalistik 5W+1H gaya Kompas**. Semua berjalan di browser, cocok untuk GitHub Pages.
+Ubah **link berita, kata kunci, teks berita, atau video (YouTube/unggahan)** menjadi **gambar judul siap posting** (4:5, 1:1, 9:16), **caption jurnalistik 5W+1H gaya Kompas**, **Video Short** 9:16, dan **artikel WordPress**. Semua berjalan di browser, cocok untuk GitHub Pages.
 
 ## Cara pasang di GitHub Pages
 
 1. Buat repo baru di GitHub, misalnya `berita-kilat` (Public).
-2. Klik **Add file → Upload files**, unggah semua isi folder ini (`index.html`, `app.js`, `style.css`, `.nojekyll`, `README.md`), lalu **Commit**.
+2. Klik **Add file → Upload files**, unggah semua isi folder ini (`index.html`, `style.css`, `.nojekyll`, `README.md`, semua file `.js` — `ai.js`, `app.js`, `research.js`, `videoin.js`, `footage.js`, `wp.js`, `video.js`, `share.js` — dan folder `wp-plugin`), lalu **Commit**.
 3. Buka **Settings → Pages**. Pada *Source* pilih **Deploy from a branch**, branch `main`, folder `/ (root)`, lalu **Save**.
 4. Tunggu 1–2 menit. App aktif di `https://USERNAME.github.io/berita-kilat/`.
 
 ## Pemakaian
 
 1. Buka **⚙ Pengaturan** (sekali saja): isi nama media, handle, warna, dan logo, lalu setel **Mesin AI** (lihat bagian di bawah).
-2. Tempel link berita → **Proses**.
+2. Pilih sumber berita di tab paling atas, lalu proses:
+   - **🔗 Link / kata kunci**: tempel link berita atau ketik kata kunci → **Proses** (lihat *Mode kata kunci*).
+   - **📝 Teks berita**: tempel teks → **Proses teks**.
+   - **🎬 Video**: link YouTube atau unggah video → **Analisis video**.
    - **Mengatur media Anda** (bagian *Identitas media*): pilih tampilan di pojok kiri atas gambar:
      - **Teks nama**: isi *Nama media*. Gambar menampilkan ikon huruf awal dan nama media.
      - **Logo**: klik *Unggah logo*. PNG transparan paling rapi. Atur besarnya lewat slider *Ukuran logo*.
@@ -61,11 +64,11 @@ Cukup setel **satu** penyedia di **⚙ Pengaturan → Mesin AI**. Setiap penyedi
 
 ### Video Short (TikTok, Reels, YouTube Shorts)
 
-Setelah link diproses, kartu **Video Short** di bawah otomatis terisi naskah (dibuat bersamaan dengan caption, tanpa panggilan AI tambahan):
+Setelah berita diproses (mode apa pun), kartu **Video Short** di bawah otomatis terisi naskah (dibuat bersamaan dengan caption, tanpa panggilan AI tambahan):
 
 - **Hook** pembuka → **poin penjelasan** berupa kalimat lengkap (pola SPOK, tanpa label) → **penutup** berisi logo, ajakan, handle, dan sumber. AI menyiapkan 6 poin, diurutkan dari yang terpenting.
 - Foto berita bergerak pelan (efek zoom), teks muncul beranimasi, ada bar progres ala story. Teks diletakkan di area aman agar tidak tertutup tombol TikTok/Reels.
-- Pilih **Gaya** tampilan: **Klasik** (gradasi + kotak gelap), **Panel bawah** (foto di atas, panel warna media di bawah), **Bingkai** (bingkai warna aksen + panel), atau **Teks sorot** (kalimat berblok warna ala caption TikTok/Reels). Pilihan gaya diingat untuk video berikutnya.
+- Pilih **Gaya** tampilan: **Klasik** (gradasi + kotak gelap), **Panel bawah** (foto di atas, panel warna media di bawah), **Bingkai** (bingkai warna aksen + panel), atau **Teks sorot** (kalimat berblok warna ala caption TikTok/Reels). Atur juga **Ukuran teks** (bawaan lebih kecil) bila kalimat terasa terlalu besar atau kecil. Pilihan gaya dan ukuran diingat untuk video berikutnya.
 - Pilih durasi **15 / 30 / 60 detik**. Durasi 15 detik menampilkan ±3 poin, 30–60 detik hingga 6 poin; lama tampil tiap poin menyesuaikan panjang kalimatnya. Klik **▶ Putar pratinjau**, lalu **⬇ Render & unduh video**: hasilnya **MP4 1080×1920** (15 dtk ±5 MB, 60 dtk ±20–25 MB), dirender langsung di browser (60 detik butuh ±40 detik).
 - **Musik latar opsional**: unggah MP3/M4A/WAV, atur volume dan titik mulai; musik dipotong (atau diulang bila lebih pendek dari video) dan diberi fade-out otomatis. Tanpa musik, video bisu, dan Anda bisa menambahkan sound trending di aplikasi (disarankan untuk jangkauan).
 - Paling baik di **Chrome atau Edge** terbaru. Di browser lain, app memakai mode cadangan (perekaman real-time, bisa menghasilkan WebM).
@@ -104,8 +107,8 @@ Pintasan: `https://USERNAME.github.io/berita-kilat/?url=LINK_BERITA` langsung me
 
 - API key dan pengaturan tersimpan di browser Anda sendiri (localStorage), tidak di repo. Gunakan app di perangkat pribadi; di komputer bersama, hapus data situs setelah selesai.
 - **Keamanan:** halaman memakai Content-Security-Policy (hanya skrip dari app sendiri, jsDelivr, dan Puter yang boleh berjalan) dan skrip mp4-muxer dikunci dengan Subresource Integrity. Semua teks dari luar (artikel, AI, hasil pencarian, WordPress) di-escape atau disaring sebelum ditampilkan. Koneksi WordPress hanya diterima dari tombol **Hubungkan** di browser ini (tautan pihak lain diabaikan) dan wajib https.
-- Artikel diambil lewat proxy CORS publik (allorigins, corsproxy.io, codetabs) dengan cadangan r.jina.ai. Bila situs memblokir, buka bagian **Bahan artikel**, tempel judul & isi, lalu klik **Pakai bahan ini**.
+- Artikel diambil lewat proxy CORS publik (allorigins, corsproxy.io, codetabs) dengan cadangan r.jina.ai. Bila situs memblokir, salin isi beritanya lalu pakai mode **📝 Teks berita**, atau buka bagian **Bahan artikel**, tempel judul & isi, lalu klik **Pakai bahan ini**.
 - Foto gambar punya tiga pilihan: **Otomatis** (dari link), **🔍 Pilih foto lain** (galeri berisi foto lain di artikel, Wikimedia Commons, Openverse, dan Pixabay/Pexels bila ada key; bisa cari dengan kata kunci sendiri; kredit foto otomatis masuk ke *Keterangan sumber*), dan **⬆ Unggah**. Foto yang dipilih juga dipakai di Hook & Penutup video.
-- Foto otomatis diambil dari link berita. Bila sumber tidak punya foto atau foto gagal diambil, kotak **Unggah foto manual** muncul di bawah gambar. Jika foto otomatis kurang cocok, klik **Foto kurang cocok? Unggah sendiri**.
+- Foto otomatis diambil dari link berita (mode video: thumbnail YouTube atau cuplikan video Anda; mode teks: dipilih dari galeri). Bila sumber tidak punya foto atau foto gagal diambil, kotak **Unggah foto manual** muncul di bawah gambar.
 - Perhatikan hak cipta foto: cantumkan sumber (sudah otomatis di bagian bawah gambar) dan, untuk pemakaian rutin, sebaiknya gunakan foto milik sendiri atau berlisensi.
 - AI bisa keliru. Periksa fakta, nama, dan angka sebelum mengunggah.
