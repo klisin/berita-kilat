@@ -490,8 +490,7 @@
   }
 
   // ---------- Ekspor: WebCodecs → MP4 ----------
-  async function exportWebCodecs(vcfg, D, script, sc, onProg) {
-    const acodec = hasAudio() ? await pickAudioCodec() : null;
+  async function exportWebCodecs(vcfg, acodec, D, script, sc, onProg) {
     const muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
       video: { codec: 'avc', width: W, height: H, frameRate: FPS },
@@ -545,7 +544,8 @@
     const stream = rc.captureStream(FPS);
     let actx = null;
     if (hasAudio()) {
-      actx = new AudioContext(); const dest = actx.createMediaStreamDestination();
+      actx = new AudioContext(); await actx.resume().catch(() => {}); // Safari: konteks sering "suspended" setelah await
+      const dest = actx.createMediaStreamDestination();
       const a = audioGraph(actx, D, actx.currentTime + 0.05); a.out.connect(dest);
       dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
     }
@@ -586,14 +586,23 @@
       await (document.fonts ? document.fonts.ready : Promise.resolve());
       const D = dur(), script = getScript(), sc = timeline(D, script.poin);
       const vcfg = opts.forceRecorder ? null : await pickVideoConfig();
-      const out = vcfg ? await exportWebCodecs(vcfg, D, script, sc, onProg) : await exportRecorder(D, script, sc, onProg);
+      const needAudio = hasAudio();
+      const acodec = vcfg && needAudio ? await pickAudioCodec() : null;
+      // Encoder video ada tetapi encoder audio tidak (umum di Safari iPhone) → rekam real-time agar suara tetap ikut
+      const audioFallback = !!vcfg && needAudio && !acodec && typeof MediaRecorder !== 'undefined';
+      const useRec = !vcfg || audioFallback;
+      if (audioFallback) btn.innerHTML = '<span class="spin"></span>Merekam real-time…';
+      const out = useRec ? await exportRecorder(D, script, sc, onProg) : await exportWebCodecs(vcfg, acodec, D, script, sc, onProg);
+      const silent = needAudio && !useRec && !acodec; // tidak ada jalur yang bisa membawa suara
       lastOut = { ...out, key: renderKey() };
-      info.textContent = `${out.label} · 1080×1920 · ${D} detik · ${(out.blob.size / 1048576).toFixed(1)} MB${music.buf && bgAudioOn() ? ' · musik + suara asli' : music.buf ? ' · dengan musik' : bgAudioOn() ? ' · suara asli video' : ' · tanpa suara'}`;
+      const sound = silent ? ' · TANPA SUARA (browser tidak mendukung)' : music.buf && bgAudioOn() ? ' · musik + suara asli' : music.buf ? ' · dengan musik' : bgAudioOn() ? ' · suara asli video' : ' · tanpa suara';
+      info.textContent = `${out.label} · 1080×1920 · ${D} detik · ${(out.blob.size / 1048576).toFixed(1)} MB${sound}${audioFallback ? ' · direkam real-time agar suara ikut' : ''}`;
       if (!opts.noDownload) {
         const a = document.createElement('a'); a.href = URL.createObjectURL(out.blob); a.download = slug() + '.' + out.ext; a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       }
-      BK.status('Video selesai dibuat. Periksa kembali teks sebelum diunggah.', 'ok');
+      if (silent) BK.status('Video dibuat <b>tanpa suara</b>: browser ini tidak bisa menyertakan musik/suara ke video. Gunakan Chrome di Android/laptop, atau tambahkan musik langsung di aplikasi TikTok/Instagram.', 'err');
+      else BK.status('Video selesai dibuat. Periksa kembali teks sebelum diunggah.', 'ok');
       return out;
     } catch (e) {
       const msg = e && e.name === 'SecurityError' ? 'Foto berasal dari server lain sehingga tidak bisa dijadikan video. Unggah foto manual.' : (e && e.message) || String(e);

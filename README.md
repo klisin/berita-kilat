@@ -72,6 +72,7 @@ Setelah berita diproses (mode apa pun), kartu **Video Short** di bawah otomatis 
 - Pilih durasi **15 / 30 / 60 detik**. Durasi 15 detik menampilkan ±3 poin, 30–60 detik hingga 6 poin; lama tampil tiap poin menyesuaikan panjang kalimatnya. Klik **▶ Putar pratinjau**, lalu **⬇ Render & unduh video**: hasilnya **MP4 1080×1920** (15 dtk ±5 MB, 60 dtk ±20–25 MB), dirender langsung di browser (60 detik butuh ±40 detik).
 - **Musik latar opsional**: unggah MP3/M4A/WAV, atur volume dan titik mulai; musik dipotong (atau diulang bila lebih pendek dari video) dan diberi fade-out otomatis. Tanpa musik, video bisu, dan Anda bisa menambahkan sound trending di aplikasi (disarankan untuk jangkauan).
 - Paling baik di **Chrome atau Edge** terbaru. Di browser lain, app memakai mode cadangan (perekaman real-time, bisa menghasilkan WebM).
+- **Di HP:** buka lewat Chrome (Android) atau Safari (iPhone, iOS 16.4+), bukan dari browser bawaan WhatsApp/Instagram/Facebook yang sering memblokir unduhan. Di iPhone, bila browser tidak bisa menyandikan audio, video bermusik/bersuara asli otomatis **direkam real-time** (selama durasi video) agar suara tetap ikut; bila tetap tidak bisa, app memberi peringatan video dibuat tanpa suara. Pindahkan API key & preset dari laptop lewat **Ekspor/Impor**.
 
 #### Footage per adegan
 
