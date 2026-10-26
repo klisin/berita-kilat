@@ -933,7 +933,22 @@ ${body}`;
     o.logo = state.logoData; o.activePreset = store.get('activePreset', '');
     return o;
   }
+  // File ekspor terakhir: dipakai tombol cadangan "Unduh file" / "Kirim" (HP sering memblokir unduhan otomatis)
+  const lastExport = { url: '', file: null };
+  function showExportResult(text, file) {
+    if (lastExport.url) URL.revokeObjectURL(lastExport.url);
+    lastExport.file = file; lastExport.url = URL.createObjectURL(file);
+    const canSend = (() => { try { return !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch { return false; } })();
+    const el = $('presetMsg'); el.style.color = '';
+    el.innerHTML = `${escapeHtml(text)}<br>Unduhan tidak muncul? <a class="linkish" href="${lastExport.url}" download="${escapeHtml(file.name)}">⬇ Unduh file</a>${canSend ? ' · <button type="button" class="linkish" id="btnPresetSend">📤 Kirim (WhatsApp, Drive, Email)</button>' : ''}`;
+  }
+  $('presetMsg').addEventListener('click', async (e) => {
+    if (!e.target.closest('#btnPresetSend') || !lastExport.file) return;
+    try { await navigator.share({ files: [lastExport.file], title: lastExport.file.name }); }
+    catch (err) { if (err && err.name !== 'AbortError') presetMsg('Gagal membuka menu kirim. Pakai "Unduh file".', true); }
+  });
   $('btnPresetExport').addEventListener('click', async () => {
+   try {
     const payload = { app: 'berita-kilat', version: 2, exportedAt: new Date().toISOString(), presets: getPresets(), current: currentSettings() };
     let note = '';
     if ($('presetWithKeys').checked) {
@@ -941,14 +956,22 @@ ${body}`;
       const secrets = {}; SECRET_KEYS.forEach((k) => { const v = store.get(k, null); if (v !== null && v !== '') secrets[k] = v; });
       const pw = prompt('Kunci file dengan kata sandi (disarankan). Kata sandi ini diminta saat impor.\nKosongkan untuk menyimpan tanpa kunci.', '');
       if (pw === null) return;
-      if (pw) { payload.secretsEnc = await encryptJson(secrets, pw); note = ' API key ikut tersimpan dan dikunci kata sandi.'; }
+      if (pw) {
+        if (!(window.crypto && crypto.subtle)) throw new Error('Penguncian kata sandi butuh halaman https (buka lewat alamat github.io, bukan file lokal). Kosongkan kata sandi atau buka versi online.');
+        presetMsg('Mengunci file…');
+        payload.secretsEnc = await encryptJson(secrets, pw); note = ' API key ikut tersimpan dan dikunci kata sandi.';
+      }
       else { payload.secrets = secrets; note = ' API key ikut tersimpan TANPA kunci — simpan file ini dengan aman.'; }
     }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `berita-kilat-${payload.secrets || payload.secretsEnc ? 'lengkap' : 'preset'}-${new Date().toISOString().slice(0, 10)}.json`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    presetMsg(`File diunduh (${Object.keys(payload.presets).length} preset + pengaturan aktif).${note} Impor file ini di browser/perangkat lain.`);
+    const name = `berita-kilat-${payload.secrets || payload.secretsEnc ? 'lengkap' : 'preset'}-${new Date().toISOString().slice(0, 10)}.json`;
+    const file = new File([JSON.stringify(payload, null, 2)], name, { type: 'application/json' });
+    showExportResult(`File dibuat: ${name} (${Object.keys(payload.presets).length} preset + pengaturan aktif).${note} Impor file ini di browser/perangkat lain.`, file);
+    // Unduh otomatis (link ditempel ke halaman & tidak langsung dilepas agar unduhan di HP sempat mulai)
+    const a = document.createElement('a'); a.href = lastExport.url; a.download = name; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+   } catch (err) {
+    presetMsg('Ekspor gagal: ' + ((err && err.message) || err), true);
+   }
   });
   $('presetImport').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
